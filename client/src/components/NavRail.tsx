@@ -1,14 +1,14 @@
 /**
  * NavRail — Left sidebar navigation
  * Design Hub design system: ~72px wide, dark bg, lime accent for active state
- * New Project button always lime. Settings at bottom.
+ * Uses IBM Carbon icons throughout
  */
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 import {
-  Home, Bell, FolderOpen, Bookmark, Settings, Plus,
-  MessageSquare, LayoutGrid, Code2, Pencil
-} from "lucide-react";
+  Home, Notification, Folder, Bookmark, Settings, Add,
+  Chat, Grid, Code, Edit
+} from "@carbon/icons-react";
 
 interface NavRailProps {
   mode?: "home" | "canvas";
@@ -16,17 +16,17 @@ interface NavRailProps {
 }
 
 const NAV_ITEMS = [
-  { icon: Bell, label: "Notifications", path: "/notifications" },
+  { icon: Notification, label: "Notifications", path: "/notifications" },
   { icon: Home, label: "Home", path: "/" },
-  { icon: FolderOpen, label: "Projects", path: "/projects" },
+  { icon: Folder, label: "Projects", path: "/projects" },
   { icon: Bookmark, label: "Saved", path: "/saved" },
 ];
 
 const CANVAS_TOOLS = [
-  { icon: MessageSquare, label: "Comments" },
-  { icon: LayoutGrid, label: "Board" },
-  { icon: Code2, label: "Code" },
-  { icon: Pencil, label: "Draw" },
+  { icon: Chat, label: "Comments" },
+  { icon: Grid, label: "Board" },
+  { icon: Code, label: "Code" },
+  { icon: Edit, label: "Draw" },
 ];
 
 const RECENT_PROJECTS = [
@@ -81,7 +81,7 @@ export default function NavRail({ mode = "home", activeProject }: NavRailProps) 
         onMouseEnter={e => (e.currentTarget.style.opacity = "0.85")}
         onMouseLeave={e => (e.currentTarget.style.opacity = "1")}
       >
-        <Plus size={20} color="#1A1A1A" strokeWidth={2.5} />
+        <Add size={20} color="#1A1A1A" />
       </button>
 
       {/* Main nav items */}
@@ -111,7 +111,7 @@ export default function NavRail({ mode = "home", activeProject }: NavRailProps) 
               if (!isActive) e.currentTarget.style.background = "transparent";
             }}
           >
-            <Icon size={20} strokeWidth={1.8} />
+            <Icon size={20} />
           </button>
         );
       })}
@@ -140,7 +140,7 @@ export default function NavRail({ mode = "home", activeProject }: NavRailProps) 
               onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")}
               onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
             >
-              <Icon size={18} strokeWidth={1.8} />
+              <Icon size={18} />
             </button>
           ))}
         </>
@@ -203,7 +203,7 @@ export default function NavRail({ mode = "home", activeProject }: NavRailProps) 
         onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")}
         onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
       >
-        <Settings size={20} strokeWidth={1.8} />
+        <Settings size={20} />
       </button>
     </nav>
   );
