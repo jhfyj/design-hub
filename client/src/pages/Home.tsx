@@ -1,21 +1,22 @@
 /**
  * Home Screen — Design Hub
- * Ref: home_macbook_2.png
- * Layout: dot-grid hero, draggable inspo cards, section boards on canvas grid,
- * Job Board, TLDR, Design Inspos
+ * Ref: home_macbook_2.png, Frame 67
+ * Three-level bg: --dh-bg (page) → --dh-surface (section board) → --dh-surface-card (inner cards)
+ * Hero cards: draggable, centered relative to viewport center, all 4 functional
+ * Agent autocomplete: z-index 9999 so it floats above everything
+ * Job cards: Apply button replaces badge on hover (not bottom overlay), date always visible
  */
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 import {
   Portfolio, Blog, Idea, ArrowRight, CheckmarkFilled,
-  Add, ChevronDown, ChevronUp, SendFilled, Renew,
+  Add, ChevronDown, ChevronUp, SendFilled,
   Bookmark, BookmarkFilled
 } from "@carbon/icons-react";
 import NavRail from "@/components/NavRail";
 
 // ── Agent autocomplete suggestions ──────────────────────────────────────────
-
 const SUGGESTIONS = [
   "Design a landing page for a SaaS product",
   "Create a color palette for a fintech brand",
@@ -28,7 +29,6 @@ const SUGGESTIONS = [
 ];
 
 // ── Job data ─────────────────────────────────────────────────────────────────
-
 const JOB_CARDS_DATA = [
   {
     id: 1, company: "Figma", role: "Senior Product Designer",
@@ -57,7 +57,6 @@ const JOB_CARDS_DATA = [
 ];
 
 // ── TLDR data ────────────────────────────────────────────────────────────────
-
 const TLDR_CARDS_DATA = [
   {
     id: 1,
@@ -82,7 +81,6 @@ const TLDR_CARDS_DATA = [
 ];
 
 // ── Design Inspos data ───────────────────────────────────────────────────────
-
 const ALL_INSPO_ITEMS = [
   { id: 1, h: 220, color: "#1c2a1c", label: "Mobbin — iOS Onboarding", url: "https://mobbin.com" },
   { id: 2, h: 160, color: "#1a1a2e", label: "Are.na — Typography", url: "https://are.na" },
@@ -107,60 +105,58 @@ function shuffleArray<T>(arr: T[]): T[] {
   return a;
 }
 
-// ── Hero Inspo Cards (draggable) ─────────────────────────────────────────────
-
+// ── Hero Inspo Cards (draggable, positioned relative to hero center) ─────────
 interface HeroCard {
   id: number;
-  x: number;
-  y: number;
+  offsetX: number; // px from center (negative = left, positive = right)
+  offsetY: number; // px from center
   rotate: number;
   text: string;
   sub: string;
   url: string;
-  imgUrl?: string;
 }
 
-const INITIAL_HERO_CARDS: HeroCard[] = [
+const HERO_CARDS: HeroCard[] = [
   {
-    id: 1, x: 40, y: 30, rotate: -4,
+    id: 1, offsetX: -430, offsetY: -100, rotate: -3,
     text: '"Design is not just what it looks like — it\'s how it works."',
     sub: "— Steve Jobs",
     url: "https://en.wikipedia.org/wiki/Steve_Jobs",
   },
   {
-    id: 2, x: -260, y: 20, rotate: 3,
+    id: 2, offsetX: 310, offsetY: -110, rotate: 2,
     text: "📖 The Design of Everyday Things",
     sub: "Don Norman · Recommended read",
     url: "https://www.goodreads.com/book/show/840.The_Design_of_Everyday_Things",
   },
   {
-    id: 3, x: 50, y: 200, rotate: 2,
-    text: "🎬 Dieter Rams documentary",
-    sub: "Watch on Apple TV+",
-    url: "https://tv.apple.com",
-  },
-  {
-    id: 4, x: -270, y: 190, rotate: -3,
+    id: 3, offsetX: -450, offsetY: 100, rotate: 2,
     text: "🎵 Lo-fi Beats for Focus",
     sub: "Listening now",
     url: "https://open.spotify.com",
   },
+  {
+    id: 4, offsetX: 320, offsetY: 90, rotate: -2,
+    text: "🎬 Dieter Rams documentary",
+    sub: "Watch on Apple TV+",
+    url: "https://tv.apple.com",
+  },
 ];
 
-function DraggableHeroCard({ card, containerRef }: { card: HeroCard; containerRef: React.RefObject<HTMLDivElement | null> }) {
-  const [pos, setPos] = useState({ x: card.x, y: card.y });
+function DraggableHeroCard({ card }: { card: HeroCard }) {
+  const [drag, setDrag] = useState({ x: card.offsetX, y: card.offsetY });
   const dragging = useRef(false);
   const startMouse = useRef({ x: 0, y: 0 });
-  const startPos = useRef({ x: 0, y: 0 });
+  const startDrag = useRef({ x: 0, y: 0 });
   const didDrag = useRef(false);
 
   const onMouseDown = useCallback((e: React.MouseEvent) => {
     dragging.current = true;
     didDrag.current = false;
     startMouse.current = { x: e.clientX, y: e.clientY };
-    startPos.current = { ...pos };
+    startDrag.current = { ...drag };
     e.preventDefault();
-  }, [pos]);
+  }, [drag]);
 
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
@@ -168,7 +164,7 @@ function DraggableHeroCard({ card, containerRef }: { card: HeroCard; containerRe
       const dx = e.clientX - startMouse.current.x;
       const dy = e.clientY - startMouse.current.y;
       if (Math.abs(dx) > 3 || Math.abs(dy) > 3) didDrag.current = true;
-      setPos({ x: startPos.current.x + dx, y: startPos.current.y + dy });
+      setDrag({ x: startDrag.current.x + dx, y: startDrag.current.y + dy });
     };
     const onUp = () => { dragging.current = false; };
     window.addEventListener("mousemove", onMove);
@@ -183,105 +179,114 @@ function DraggableHeroCard({ card, containerRef }: { card: HeroCard; containerRe
     if (!didDrag.current) window.open(card.url, "_blank");
   };
 
-  // Position relative to center of hero
-  const isLeft = card.x < 0;
-  const style: React.CSSProperties = {
-    position: "absolute",
-    transform: `translate(${pos.x}px, ${pos.y}px) rotate(${card.rotate}deg)`,
-    ...(isLeft ? { right: "50%", marginRight: 20 } : { left: "50%", marginLeft: 20 }),
-    top: 0,
-    background: "var(--dh-surface)",
-    borderRadius: 12,
-    padding: "12px 14px",
-    maxWidth: 200,
-    zIndex: 2,
-    cursor: dragging.current ? "grabbing" : "grab",
-    userSelect: "none",
-    backdropFilter: "blur(8px)",
-    transition: dragging.current ? "none" : "box-shadow 150ms",
-    boxShadow: "0 4px 20px rgba(0,0,0,0.3)",
-  };
-
   return (
-    <div style={style} onMouseDown={onMouseDown} onClick={handleClick}>
-      <div style={{ fontSize: 12, color: "var(--dh-text-secondary)", lineHeight: 1.5 }}>{card.text}</div>
+    <div
+      onMouseDown={onMouseDown}
+      onClick={handleClick}
+      style={{
+        position: "absolute",
+        // Center the card relative to the hero center point
+        left: "50%",
+        top: "50%",
+        transform: `translate(calc(-50% + ${drag.x}px), calc(-50% + ${drag.y}px)) rotate(${card.rotate}deg)`,
+        background: "var(--dh-surface)",
+        borderRadius: 12,
+        padding: "12px 14px",
+        width: 190,
+        zIndex: 2,
+        cursor: dragging.current ? "grabbing" : "grab",
+        userSelect: "none",
+        boxShadow: "0 4px 20px rgba(0,0,0,0.35)",
+        transition: dragging.current ? "none" : "box-shadow 150ms",
+      }}
+    >
+      <div style={{ fontSize: 12, color: "var(--dh-text-secondary)", lineHeight: 1.55 }}>{card.text}</div>
       {card.sub && <div style={{ fontSize: 10, color: "var(--dh-text-muted)", marginTop: 4 }}>{card.sub}</div>}
     </div>
   );
 }
 
 // ── Job Card ─────────────────────────────────────────────────────────────────
-
 function JobCard({ card, onApply }: {
   card: typeof JOB_CARDS_DATA[0];
   onApply: (id: number) => void;
 }) {
   const [hovered, setHovered] = useState(false);
-  const [applying, setApplying] = useState(false);
+  const [removing, setRemoving] = useState(false);
 
-  const badgeEl = () => {
+  const handleApply = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRemoving(true);
+    setTimeout(() => onApply(card.id), 380);
+  };
+
+  // The badge or apply button shown top-right
+  const topRight = () => {
+    if (hovered) {
+      return (
+        <button
+          onClick={handleApply}
+          style={{
+            background: "var(--dh-accent)",
+            border: "none",
+            borderRadius: 6,
+            padding: "4px 12px",
+            fontSize: 11,
+            fontWeight: 700,
+            color: "#1A1A1A",
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+            fontFamily: "'Figtree', sans-serif",
+            transition: "opacity 150ms",
+            flexShrink: 0,
+          }}
+          onMouseEnter={e => (e.currentTarget.style.opacity = "0.85")}
+          onMouseLeave={e => (e.currentTarget.style.opacity = "1")}
+        >
+          <CheckmarkFilled size={12} /> Apply
+        </button>
+      );
+    }
     if (card.badgeType === "new") return (
-      <span style={{
-        background: "var(--dh-accent)", color: "#1A1A1A",
-        fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
-        letterSpacing: "0.04em",
-      }}>NEW!</span>
+      <span style={{ background: "var(--dh-accent)", color: "#1A1A1A", fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 4, letterSpacing: "0.04em", whiteSpace: "nowrap" }}>NEW!</span>
     );
     if (card.badgeType === "urgent") return (
-      <span style={{
-        background: "#FF3B30", color: "#fff",
-        fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
-        letterSpacing: "0.04em",
-      }}>URGENT</span>
+      <span style={{ background: "#FF3B30", color: "#fff", fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 4, letterSpacing: "0.04em", whiteSpace: "nowrap" }}>URGENT</span>
     );
     if (card.badgeType === "applied") return (
-      <span style={{
-        background: "var(--dh-accent)", color: "#1A1A1A",
-        fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
-        letterSpacing: "0.04em", display: "flex", alignItems: "center", gap: 3,
-      }}>
+      <span style={{ background: "var(--dh-accent)", color: "#1A1A1A", fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 4, letterSpacing: "0.04em", display: "flex", alignItems: "center", gap: 3, whiteSpace: "nowrap" }}>
         <CheckmarkFilled size={10} /> APPLIED
       </span>
     );
     if (card.badgeType === "recommended") return (
-      <span style={{
-        border: "1.5px dashed var(--dh-accent)", color: "var(--dh-accent)",
-        fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
-        letterSpacing: "0.04em",
-      }}>✦ RECOMMENDED</span>
+      <span style={{ border: "1.5px dashed var(--dh-accent)", color: "var(--dh-accent)", fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 4, letterSpacing: "0.04em", whiteSpace: "nowrap" }}>✦ RECOMMENDED</span>
     );
     return null;
-  };
-
-  const handleApply = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setApplying(true);
-    setTimeout(() => onApply(card.id), 400);
   };
 
   return (
     <div
       style={{
-        background: hovered ? "var(--dh-surface-raised)" : "var(--dh-surface)",
-        borderRadius: 14,
-        padding: "16px",
+        // Third bg level: --dh-surface-card inside the --dh-surface section board
+        background: hovered ? "var(--dh-surface-raised)" : "var(--dh-surface-card)",
+        borderRadius: 12,
+        padding: "14px 16px",
         display: "flex",
         flexDirection: "column",
         gap: 8,
         cursor: "pointer",
-        position: "relative",
+        transition: "background 180ms, transform 380ms cubic-bezier(0.4,0,0.2,1), opacity 380ms",
+        transform: removing ? "scale(0.82)" : "scale(1)",
+        opacity: removing ? 0 : 1,
         overflow: "hidden",
-        transition: "background 200ms, transform 400ms cubic-bezier(0.4,0,0.2,1), opacity 400ms, max-height 400ms",
-        transform: applying ? "scale(0.85)" : "scale(1)",
-        opacity: applying ? 0 : 1,
-        maxHeight: applying ? 0 : 200,
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onClick={() => window.open(card.url, "_blank")}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-        {/* Company logo */}
+      {/* Top row: logo + badge/apply */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
         <div style={{
           width: 36, height: 36, borderRadius: 8,
           background: "var(--dh-surface-input)",
@@ -292,88 +297,54 @@ function JobCard({ card, onApply }: {
           <img
             src={card.logo}
             alt={card.company}
-            style={{ width: "100%", height: "100%", objectFit: "contain" }}
+            style={{ width: 22, height: 22, objectFit: "contain" }}
             onError={e => {
               (e.target as HTMLImageElement).style.display = "none";
-              (e.target as HTMLImageElement).parentElement!.innerHTML = `<span style="font-size:13px;font-weight:700;color:var(--dh-text-muted)">${card.company[0]}</span>`;
+              const parent = (e.target as HTMLImageElement).parentElement!;
+              parent.innerHTML = `<span style="font-size:14px;font-weight:700;color:var(--dh-text-muted)">${card.company[0]}</span>`;
             }}
           />
         </div>
-        {badgeEl()}
+        {topRight()}
       </div>
+
+      {/* Company + role */}
       <div>
-        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--dh-text-muted)", letterSpacing: "0.08em", marginBottom: 3 }}>
-          {card.company.toUpperCase()}
+        <div style={{ fontSize: 10, fontWeight: 700, color: "var(--dh-text-muted)", letterSpacing: "0.08em", marginBottom: 3, textTransform: "uppercase" }}>
+          {card.company}
         </div>
-        <div style={{ fontSize: 16, fontWeight: 600, color: "var(--dh-text-primary)", lineHeight: 1.3 }}>
+        <div style={{ fontSize: 15, fontWeight: 600, color: "var(--dh-text-primary)", lineHeight: 1.3 }}>
           {card.role}
         </div>
       </div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+
+      {/* Date row — always visible */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <span style={{ fontSize: 11, color: "var(--dh-text-muted)" }}>{card.due}</span>
         <span style={{ fontSize: 11, color: "var(--dh-text-disabled)" }}>{card.posted}</span>
-      </div>
-
-      {/* Hover overlay: Apply button */}
-      <div style={{
-        position: "absolute",
-        bottom: 0, left: 0, right: 0,
-        padding: "12px 16px",
-        background: "linear-gradient(to top, var(--dh-surface-raised) 60%, transparent)",
-        display: "flex",
-        justifyContent: "flex-end",
-        opacity: hovered ? 1 : 0,
-        transform: hovered ? "translateY(0)" : "translateY(6px)",
-        transition: "opacity 180ms, transform 180ms",
-        pointerEvents: hovered ? "auto" : "none",
-      }}>
-        <button
-          onClick={handleApply}
-          style={{
-            background: "var(--dh-accent)",
-            border: "none",
-            borderRadius: 8,
-            padding: "7px 16px",
-            fontSize: 13,
-            fontWeight: 700,
-            color: "#1A1A1A",
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            fontFamily: "'Figtree', sans-serif",
-            transition: "opacity 150ms",
-          }}
-          onMouseEnter={e => (e.currentTarget.style.opacity = "0.85")}
-          onMouseLeave={e => (e.currentTarget.style.opacity = "1")}
-        >
-          <CheckmarkFilled size={14} /> Apply
-        </button>
       </div>
     </div>
   );
 }
 
 // ── TLDR Card ────────────────────────────────────────────────────────────────
-
 function TldrCard({ card }: { card: typeof TLDR_CARDS_DATA[0] }) {
   const [saved, setSaved] = useState(false);
   return (
     <div style={{
-      background: "var(--dh-surface)",
-      borderRadius: 14,
-      padding: "24px",
+      background: "var(--dh-surface-card)",
+      borderRadius: 12,
+      padding: "22px",
       display: "flex",
       flexDirection: "column",
-      gap: 0,
     }}>
-      {/* Source + bookmark row */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-        <div style={{ fontSize: 11, color: "var(--dh-text-disabled)", fontFamily: "'Fira Mono', monospace" }}>{card.source}</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <div style={{ fontSize: 10, color: "var(--dh-text-disabled)", fontFamily: "'Fira Mono', monospace", letterSpacing: "0.05em" }}>{card.source}</div>
         <button
           onClick={() => setSaved(v => !v)}
-          style={{ background: "transparent", border: "none", color: saved ? "var(--dh-accent)" : "var(--dh-text-muted)", padding: 2 }}
+          style={{ background: "transparent", border: "none", color: saved ? "var(--dh-accent)" : "var(--dh-text-muted)", padding: 2, flexShrink: 0 }}
         >
-          {saved ? <BookmarkFilled size={16} /> : <Bookmark size={16} />}
+          {saved ? <BookmarkFilled size={15} /> : <Bookmark size={15} />}
         </button>
       </div>
 
@@ -383,41 +354,40 @@ function TldrCard({ card }: { card: typeof TLDR_CARDS_DATA[0] }) {
         target="_blank"
         rel="noopener noreferrer"
         style={{
-          fontSize: 18, fontWeight: 600, color: "var(--dh-text-primary)",
+          fontSize: 17, fontWeight: 600, color: "var(--dh-text-primary)",
           lineHeight: 1.35, marginBottom: 10,
           textDecoration: "underline",
-          textDecorationColor: "rgba(255,255,255,0.2)",
+          textDecorationColor: "rgba(255,255,255,0.18)",
           textUnderlineOffset: 3,
           display: "block",
         }}
         onMouseEnter={e => (e.currentTarget.style.textDecorationColor = "var(--dh-accent)")}
-        onMouseLeave={e => (e.currentTarget.style.textDecorationColor = "rgba(255,255,255,0.2)")}
+        onMouseLeave={e => (e.currentTarget.style.textDecorationColor = "rgba(255,255,255,0.18)")}
       >
         {card.title}
       </a>
 
-      <div style={{ fontSize: 14, color: "var(--dh-text-secondary)", lineHeight: 1.65, marginBottom: 24 }}>
+      <div style={{ fontSize: 13, color: "var(--dh-text-secondary)", lineHeight: 1.7, marginBottom: 22 }}>
         {card.blurb}
       </div>
 
       {/* What you need to know */}
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--dh-accent)", letterSpacing: "0.06em", marginBottom: 8, textTransform: "uppercase" }}>
+      <div style={{ marginBottom: 22 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: "var(--dh-accent)", letterSpacing: "0.07em", marginBottom: 8, textTransform: "uppercase" }}>
           What you need to know
         </div>
-        <div style={{ fontSize: 13, color: "var(--dh-text-secondary)", lineHeight: 1.65 }}>{card.need}</div>
+        <div style={{ fontSize: 13, color: "var(--dh-text-secondary)", lineHeight: 1.7 }}>{card.need}</div>
       </div>
 
       {/* What it means to you */}
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--dh-accent)", letterSpacing: "0.06em", marginBottom: 8, textTransform: "uppercase" }}>
+      <div style={{ marginBottom: 22 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: "var(--dh-accent)", letterSpacing: "0.07em", marginBottom: 8, textTransform: "uppercase" }}>
           What it means to you
         </div>
-        <div style={{ fontSize: 13, color: "var(--dh-text-secondary)", lineHeight: 1.65 }}>{card.means}</div>
+        <div style={{ fontSize: 13, color: "var(--dh-text-secondary)", lineHeight: 1.7 }}>{card.means}</div>
       </div>
 
-      {/* Footer */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <span style={{ fontSize: 11, color: "var(--dh-text-disabled)" }}>{card.time}</span>
         <button
           onClick={() => toast("Marked as read")}
@@ -439,15 +409,14 @@ function TldrCard({ card }: { card: typeof TLDR_CARDS_DATA[0] }) {
   );
 }
 
-// ── Section Board wrapper ────────────────────────────────────────────────────
-
+// ── Section Board ─────────────────────────────────────────────────────────────
 function SectionBoard({ children }: { children: React.ReactNode }) {
   return (
     <div
       className="canvas-grid"
       style={{
         borderRadius: 16,
-        padding: "24px",
+        padding: "22px",
         background: "var(--dh-surface)",
         position: "relative",
         overflow: "hidden",
@@ -458,16 +427,14 @@ function SectionBoard({ children }: { children: React.ReactNode }) {
   );
 }
 
-// ── Section Header ───────────────────────────────────────────────────────────
-
 function SectionHeader({
   icon: Icon, label, action, onAction
 }: { icon: React.ElementType; label: string; action?: string; onAction?: () => void }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <Icon size={20} color="var(--dh-accent)" />
-        <span style={{ fontSize: 18, fontWeight: 700, color: "var(--dh-text-primary)", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+        <Icon size={18} color="var(--dh-accent)" />
+        <span style={{ fontSize: 13, fontWeight: 700, color: "var(--dh-text-primary)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
           {label}
         </span>
       </div>
@@ -493,7 +460,6 @@ function SectionHeader({
 }
 
 // ── Main component ───────────────────────────────────────────────────────────
-
 export default function Home() {
   const [, navigate] = useLocation();
   const [time, setTime] = useState("");
@@ -506,7 +472,6 @@ export default function Home() {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const heroRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const update = () => {
@@ -530,9 +495,7 @@ export default function Home() {
       setShowSuggestions(false);
       return;
     }
-    const filtered = SUGGESTIONS.filter(s =>
-      s.toLowerCase().includes(val.toLowerCase())
-    );
+    const filtered = SUGGESTIONS.filter(s => s.toLowerCase().includes(val.toLowerCase()));
     setSuggestions(filtered.length > 0 ? filtered : SUGGESTIONS.slice(0, 4));
     setShowSuggestions(true);
   };
@@ -556,50 +519,55 @@ export default function Home() {
     <div style={{ display: "flex", minHeight: "100vh", background: "var(--dh-bg)" }}>
       <NavRail mode="home" />
 
-      <div style={{ marginLeft: 72, flex: 1, overflowY: "auto" }}>
+      {/* Main content — no left margin, NavRail floats over */}
+      <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
 
         {/* ── Hero Zone ── */}
         <section
           className="dot-grid"
-          ref={heroRef}
           style={{
             position: "relative",
-            minHeight: 440,
+            minHeight: 520,
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
             justifyContent: "center",
             padding: "60px 20px 80px",
-            overflow: "hidden",
+            overflow: "visible",
           }}
         >
-          {/* Draggable inspo cards */}
-          {INITIAL_HERO_CARDS.map(card => (
-            <DraggableHeroCard key={card.id} card={card} containerRef={heroRef} />
+          {/* Draggable inspo cards — all 4, centered via transform */}
+          {HERO_CARDS.map(card => (
+            <DraggableHeroCard key={card.id} card={card} />
           ))}
 
-          <div style={{ position: "relative", zIndex: 2, textAlign: "center", maxWidth: 600 }}>
+          {/* Center content */}
+          <div style={{ position: "relative", zIndex: 3, textAlign: "center", maxWidth: 560 }}>
             <div style={{
               fontFamily: "'Fira Mono', monospace",
               fontSize: 12,
               color: "var(--dh-text-muted)",
-              marginBottom: 16,
+              marginBottom: 14,
               letterSpacing: "0.05em",
             }}>
               {time} | Santa Monica
             </div>
+
+            {/* Single-line title — font size scales down to fit */}
             <h1 style={{
               fontFamily: "'Figtree', sans-serif",
-              fontSize: "clamp(48px, 7vw, 88px)",
+              fontSize: "clamp(36px, 5.5vw, 72px)",
               fontWeight: 400,
               color: "var(--dh-text-primary)",
               lineHeight: 1.05,
               margin: "0 0 10px",
+              whiteSpace: "nowrap",
             }}>
               Welcome back, Jen
             </h1>
+
             <p style={{
-              fontSize: 18,
+              fontSize: 16,
               color: "var(--dh-text-muted)",
               marginBottom: 28,
               fontWeight: 400,
@@ -607,16 +575,18 @@ export default function Home() {
               What are we working on today?
             </p>
 
-            {/* Agent search with autocomplete */}
-            <div style={{ position: "relative", width: "100%", maxWidth: 520, margin: "0 auto" }}>
+            {/* Agent search with autocomplete — z-index 9999 */}
+            <div style={{ position: "relative", width: "100%", maxWidth: 500, margin: "0 auto", zIndex: 9999 }}>
               <div style={{
                 display: "flex",
                 alignItems: "center",
                 background: "var(--dh-surface)",
                 borderRadius: showSuggestions ? "12px 12px 0 0" : 999,
-                padding: "10px 16px 10px 20px",
+                padding: "10px 14px 10px 20px",
                 gap: 10,
                 transition: "border-radius 150ms",
+                position: "relative",
+                zIndex: 9999,
               }}>
                 <input
                   ref={inputRef}
@@ -630,7 +600,7 @@ export default function Home() {
                     background: "transparent",
                     border: "none",
                     outline: "none",
-                    fontSize: 15,
+                    fontSize: 14,
                     color: "var(--dh-text-primary)",
                     fontFamily: "'Figtree', sans-serif",
                   }}
@@ -638,7 +608,7 @@ export default function Home() {
                 <button
                   onClick={() => { toast("Agent coming soon"); setShowSuggestions(false); }}
                   style={{
-                    width: 32, height: 32, borderRadius: "50%",
+                    width: 30, height: 30, borderRadius: "50%",
                     background: "var(--dh-accent)", border: "none",
                     display: "flex", alignItems: "center", justifyContent: "center",
                     flexShrink: 0,
@@ -647,11 +617,11 @@ export default function Home() {
                   onMouseEnter={e => (e.currentTarget.style.opacity = "0.85")}
                   onMouseLeave={e => (e.currentTarget.style.opacity = "1")}
                 >
-                  <SendFilled size={14} color="#1A1A1A" />
+                  <SendFilled size={13} color="#1A1A1A" />
                 </button>
               </div>
 
-              {/* Suggestions dropdown */}
+              {/* Suggestions dropdown — positioned absolutely, z-index above everything */}
               {showSuggestions && suggestions.length > 0 && (
                 <div style={{
                   position: "absolute",
@@ -660,8 +630,8 @@ export default function Home() {
                   background: "var(--dh-surface)",
                   borderRadius: "0 0 12px 12px",
                   overflow: "hidden",
-                  zIndex: 10,
-                  boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+                  zIndex: 9999,
+                  boxShadow: "0 12px 32px rgba(0,0,0,0.5)",
                 }}>
                   {suggestions.map((s, i) => (
                     <button
@@ -673,7 +643,7 @@ export default function Home() {
                         border: "none",
                         padding: "10px 20px",
                         textAlign: "left",
-                        fontSize: 14,
+                        fontSize: 13,
                         color: "var(--dh-text-secondary)",
                         fontFamily: "'Figtree', sans-serif",
                         display: "flex",
@@ -691,7 +661,7 @@ export default function Home() {
                         e.currentTarget.style.color = "var(--dh-text-secondary)";
                       }}
                     >
-                      <ArrowRight size={12} color="var(--dh-accent)" />
+                      <ArrowRight size={11} color="var(--dh-accent)" />
                       <span>{s}</span>
                     </button>
                   ))}
@@ -702,7 +672,7 @@ export default function Home() {
         </section>
 
         {/* ── Content sections ── */}
-        <div style={{ padding: "32px 40px 80px", maxWidth: 1200, margin: "0 auto", display: "flex", flexDirection: "column", gap: 24 }}>
+        <div style={{ padding: "28px 40px 80px 40px", maxWidth: 1100, margin: "0 auto", display: "flex", flexDirection: "column", gap: 20 }}>
 
           {/* Job Board */}
           <SectionBoard>
@@ -713,7 +683,7 @@ export default function Home() {
               onAction={() => navigate("/job-watchlist")}
             />
             {jobs.length === 0 ? (
-              <div style={{ textAlign: "center", padding: "40px 0", color: "var(--dh-text-muted)", fontSize: 14 }}>
+              <div style={{ textAlign: "center", padding: "36px 0", color: "var(--dh-text-muted)", fontSize: 14 }}>
                 No more jobs to review. Check back later.
               </div>
             ) : (
@@ -741,15 +711,15 @@ export default function Home() {
               style={{
                 display: "flex", alignItems: "center", gap: 6,
                 background: "transparent", border: "none",
-                color: "var(--dh-text-muted)", fontSize: 13,
-                marginTop: 14, padding: "6px 0",
+                color: "var(--dh-text-muted)", fontSize: 12,
+                marginTop: 12, padding: "6px 0",
                 transition: "color 150ms",
                 fontFamily: "'Figtree', sans-serif",
               }}
               onMouseEnter={e => (e.currentTarget.style.color = "var(--dh-text-secondary)")}
               onMouseLeave={e => (e.currentTarget.style.color = "var(--dh-text-muted)")}
             >
-              {tldrExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              {tldrExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
               {tldrExpanded ? "Show less" : "Expand"}
             </button>
           </SectionBoard>
@@ -762,13 +732,7 @@ export default function Home() {
               action="Refresh"
               onAction={handleRefreshInspo}
             />
-            {/* Refresh icon inline next to button text */}
-            <div
-              style={{
-                columns: "3 220px",
-                columnGap: 10,
-              }}
-            >
+            <div style={{ columns: "3 200px", columnGap: 10 }}>
               {inspoItems.map(item => (
                 <div
                   key={item.id}
@@ -785,38 +749,36 @@ export default function Home() {
                   }}
                   onMouseEnter={e => {
                     e.currentTarget.style.transform = "scale(1.015)";
-                    const btn = e.currentTarget.querySelector(".inspo-add") as HTMLElement | null;
+                    const btn = e.currentTarget.querySelector<HTMLElement>(".inspo-add");
                     if (btn) btn.style.opacity = "1";
                   }}
                   onMouseLeave={e => {
                     e.currentTarget.style.transform = "scale(1)";
-                    const btn = e.currentTarget.querySelector(".inspo-add") as HTMLElement | null;
+                    const btn = e.currentTarget.querySelector<HTMLElement>(".inspo-add");
                     if (btn) btn.style.opacity = "0";
                   }}
                   onClick={() => window.open(item.url, "_blank")}
                 >
                   <div style={{
                     position: "absolute", bottom: 8, left: 10,
-                    fontSize: 10, color: "rgba(255,255,255,0.4)",
+                    fontSize: 9, color: "rgba(255,255,255,0.35)",
                     fontFamily: "'Fira Mono', monospace",
                   }}>
                     {item.label}
                   </div>
-                  {/* Plus button — absolutely centered top-right */}
                   <button
                     className="inspo-add"
                     onClick={e => { e.stopPropagation(); toast("Added to canvas"); }}
                     style={{
                       position: "absolute", top: 8, right: 8,
-                      width: 28, height: 28, borderRadius: "50%",
+                      width: 26, height: 26, borderRadius: "50%",
                       background: "var(--dh-accent)", border: "none",
                       display: "flex", alignItems: "center", justifyContent: "center",
                       opacity: 0, transition: "opacity 150ms",
                       padding: 0,
-                      lineHeight: 1,
                     }}
                   >
-                    <Add size={16} color="#1A1A1A" />
+                    <Add size={14} color="#1A1A1A" />
                   </button>
                 </div>
               ))}
