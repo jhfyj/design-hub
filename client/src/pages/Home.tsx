@@ -12,7 +12,7 @@ import { toast } from "sonner";
 import {
   Portfolio, Blog, Idea, ArrowRight, CheckmarkFilled,
   Add, ChevronDown, ChevronUp, SendFilled,
-  Bookmark, BookmarkFilled
+  Bookmark, BookmarkFilled, Renew
 } from "@carbon/icons-react";
 import NavRail from "@/components/NavRail";
 
@@ -44,7 +44,7 @@ const JOB_CARDS_DATA = [
   },
   {
     id: 3, company: "Linear", role: "Product Designer",
-    due: "Due Aug 1", posted: "1d ago", badge: "APPLIED", badgeType: "applied",
+    due: "Due Aug 1", posted: "1d ago", badge: "NEW!", badgeType: "new",
     url: "https://linear.app/careers",
     logo: "https://cdn.simpleicons.org/linear/5E6AD2",
   },
@@ -254,11 +254,6 @@ function JobCard({ card, onApply }: {
     if (card.badgeType === "urgent") return (
       <span style={{ background: "#FF3B30", color: "#fff", fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 4, letterSpacing: "0.04em", whiteSpace: "nowrap" }}>URGENT</span>
     );
-    if (card.badgeType === "applied") return (
-      <span style={{ background: "var(--dh-accent)", color: "#1A1A1A", fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 4, letterSpacing: "0.04em", display: "flex", alignItems: "center", gap: 3, whiteSpace: "nowrap" }}>
-        <CheckmarkFilled size={10} /> APPLIED
-      </span>
-    );
     if (card.badgeType === "recommended") return (
       <span style={{ border: "1.5px dashed var(--dh-accent)", color: "var(--dh-accent)", fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 4, letterSpacing: "0.04em", whiteSpace: "nowrap" }}>✦ RECOMMENDED</span>
     );
@@ -276,7 +271,7 @@ function JobCard({ card, onApply }: {
         flexDirection: "column",
         gap: 8,
         cursor: "pointer",
-        transition: "background 180ms, transform 380ms cubic-bezier(0.4,0,0.2,1), opacity 380ms",
+        transition: "background 350ms var(--ease-out), transform 380ms cubic-bezier(0.4,0,0.2,1), opacity 380ms",
         transform: removing ? "scale(0.82)" : "scale(1)",
         opacity: removing ? 0 : 1,
         overflow: "hidden",
@@ -357,12 +352,12 @@ function TldrCard({ card }: { card: typeof TLDR_CARDS_DATA[0] }) {
           fontSize: 17, fontWeight: 600, color: "var(--dh-text-primary)",
           lineHeight: 1.35, marginBottom: 10,
           textDecoration: "underline",
-          textDecorationColor: "rgba(255,255,255,0.18)",
+          textDecorationColor: "rgba(255,255,255,0.5)",
           textUnderlineOffset: 3,
           display: "block",
         }}
         onMouseEnter={e => (e.currentTarget.style.textDecorationColor = "var(--dh-accent)")}
-        onMouseLeave={e => (e.currentTarget.style.textDecorationColor = "rgba(255,255,255,0.18)")}
+        onMouseLeave={e => (e.currentTarget.style.textDecorationColor = "rgba(255,255,255,0.5)")}
       >
         {card.title}
       </a>
@@ -430,10 +425,11 @@ function SectionBoard({ children }: { children: React.ReactNode }) {
 function SectionHeader({
   icon: Icon, label, action, onAction
 }: { icon: React.ElementType; label: string; action?: string; onAction?: () => void }) {
+  const isRefresh = action === "refresh";
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-        <Icon size={18} color="var(--dh-accent)" />
+        <Icon size={18} color="#FBFBFB" />
         <span style={{ fontSize: 13, fontWeight: 700, color: "var(--dh-text-primary)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
           {label}
         </span>
@@ -444,7 +440,7 @@ function SectionHeader({
           style={{
             background: "var(--dh-surface-input)",
             borderRadius: 8, padding: "5px 12px", fontSize: 12,
-            color: "var(--dh-text-secondary)", display: "flex", alignItems: "center", gap: 5,
+            color: "var(--dh-text-secondary)", display: "flex", alignItems: "center", gap: 6,
             border: "none",
             transition: "background 150ms, color 150ms",
             fontFamily: "'Figtree', sans-serif",
@@ -452,7 +448,8 @@ function SectionHeader({
           onMouseEnter={e => { e.currentTarget.style.background = "var(--dh-surface-raised)"; e.currentTarget.style.color = "var(--dh-text-primary)"; }}
           onMouseLeave={e => { e.currentTarget.style.background = "var(--dh-surface-input)"; e.currentTarget.style.color = "var(--dh-text-secondary)"; }}
         >
-          {action}
+          {isRefresh ? "Refresh" : action}
+          {isRefresh && <Renew size={13} />}
         </button>
       )}
     </div>
@@ -729,7 +726,7 @@ export default function Home() {
             <SectionHeader
               icon={Idea}
               label="Design Inspos"
-              action="Refresh"
+              action="refresh"
               onAction={handleRefreshInspo}
             />
             <div style={{ columns: "3 200px", columnGap: 10 }}>
