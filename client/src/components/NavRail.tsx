@@ -46,16 +46,16 @@ function NavItem({
 
   // In collapsed mode: 36×36 square highlight centred in the 52px pill
   // In expanded mode: full-width highlight with 6px horizontal inset, 6px radius
+  // Active = light grey (same as project slot active), no yellow anywhere
+  const activeBg = "rgba(255,255,255,0.10)";
+  const hoverBg  = "rgba(255,255,255,0.06)";
+
   const highlightStyle: React.CSSProperties = expanded
     ? {
         position: "absolute",
         inset: "0 6px",
         borderRadius: 6,
-        background: isActive
-          ? "rgba(225,255,0,0.13)"
-          : hovered
-          ? "rgba(255,255,255,0.07)"
-          : "transparent",
+        background: isActive ? activeBg : hovered ? hoverBg : "transparent",
         transition: "background 200ms",
         zIndex: 0,
       }
@@ -67,11 +67,7 @@ function NavItem({
         left: "50%",
         top: "50%",
         transform: "translate(-50%,-50%)",
-        background: isActive
-          ? "rgba(225,255,0,0.13)"
-          : hovered
-          ? "rgba(255,255,255,0.07)"
-          : "transparent",
+        background: isActive ? activeBg : hovered ? hoverBg : "transparent",
         transition: "background 200ms",
         zIndex: 0,
       };
@@ -92,7 +88,7 @@ function NavItem({
         padding: expanded ? "0 18px" : "0",
         background: "transparent",
         border: "none",
-        color: isActive ? "var(--dh-accent)" : "var(--dh-text-secondary)",
+        color: "var(--dh-text-secondary)",
         flexShrink: 0,
         transition: "color 150ms",
       }}
@@ -158,6 +154,7 @@ export default function NavRail({ mode = "home", activeProject }: NavRailProps) 
         flexDirection: "column",
         alignItems: "center",
         gap: 2,
+        minHeight: 480,
         transition: "width 260ms cubic-bezier(0.23,1,0.32,1)",
         overflow: "hidden",
       }}
