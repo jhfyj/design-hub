@@ -111,15 +111,17 @@ function NavItem({
       </span>
       {expanded && (
         <span style={{
-          marginLeft: 10,
+          marginLeft: expanded ? 10 : 0,
           fontSize: 14,
           fontWeight: isActive ? 600 : 400,
           fontFamily: "'Figtree', sans-serif",
           whiteSpace: "nowrap",
           position: "relative",
           zIndex: 1,
-          opacity: 1,
-          transition: "opacity 150ms 80ms",
+          maxWidth: expanded ? 140 : 0,
+          overflow: "hidden",
+          opacity: expanded ? 1 : 0,
+          transition: "max-width 260ms cubic-bezier(0.23,1,0.32,1), opacity 180ms 60ms, margin-left 260ms cubic-bezier(0.23,1,0.32,1)",
         }}>
           {label}
         </span>
@@ -141,8 +143,8 @@ export default function NavRail({ mode = "home", activeProject }: NavRailProps) 
   };
 
   const pillWidth = expanded ? 200 : 52;
-  // Pill radius: 999 when collapsed, decreases to 16 when expanded
-  const pillRadius = expanded ? 16 : 999;
+  // Radius stays at 16 in both states — same shape, just wider
+  const pillRadius = 16;
 
   return (
     <nav
@@ -164,7 +166,7 @@ export default function NavRail({ mode = "home", activeProject }: NavRailProps) 
         flexDirection: "column",
         alignItems: "center",
         gap: 2,
-        transition: "width 220ms cubic-bezier(0.23,1,0.32,1), border-radius 220ms cubic-bezier(0.23,1,0.32,1)",
+        transition: "width 260ms cubic-bezier(0.23,1,0.32,1)",
         overflow: "hidden",
       }}
     >

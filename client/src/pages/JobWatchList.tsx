@@ -48,7 +48,6 @@ function CompanyCard({ name, onRemove }: { name: string; onRemove: () => void })
   return (
     <div style={{
       background: "var(--dh-surface)",
-      border: "1px solid var(--dh-border)",
       borderRadius: 12, padding: "16px",
       display: "flex", flexDirection: "column", gap: 10,
       alignItems: "center",
@@ -124,50 +123,53 @@ export default function JobWatchList() {
         </button>
 
         {/* Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-          <div>
-            <h1 style={{
-              fontSize: 36, fontWeight: 700, color: "var(--dh-text-primary)",
-              letterSpacing: "0.04em", margin: 0, textTransform: "uppercase",
-            }}>
-              Job Watch List
-            </h1>
-            <p style={{ fontSize: 14, color: "var(--dh-text-muted)", marginTop: 8, maxWidth: 480 }}>
-              Track companies you want to work at. We'll surface new openings from their job boards and alert you when roles match your tags.
-            </p>
-          </div>
-
-          {/* Search */}
-          <div style={{
-            display: "flex", alignItems: "center", gap: 8,
-            background: "var(--dh-surface-input)",
-            border: "1px solid var(--dh-border)",
-            borderRadius: 8, padding: "8px 14px",
-            width: 220,
+        <div style={{ marginBottom: 28 }}>
+          <h1 style={{
+            fontSize: 36, fontWeight: 700, color: "var(--dh-text-primary)",
+            letterSpacing: "0.04em", margin: 0, textTransform: "uppercase",
           }}>
-            <Search size={14} color="var(--dh-text-muted)" />
-            <input
-              placeholder="Search companies..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              style={{
-                flex: 1, background: "transparent", border: "none", outline: "none",
-                fontSize: 13, color: "var(--dh-text-primary)", fontFamily: "'Figtree', sans-serif",
-              }}
-            />
-          </div>
+            Job Watch List
+          </h1>
+          <p style={{ fontSize: 14, color: "var(--dh-text-muted)", marginTop: 8, maxWidth: 480 }}>
+            Track companies you want to work at. We'll surface new openings from their job boards and alert you when roles match your tags.
+          </p>
         </div>
 
-        {/* Divider */}
-        <div style={{ height: 1, background: "var(--dh-border)", margin: "24px 0" }} />
+        {/* Company section: header row with search bottom-aligned, then grid, then divider */}
+        <div style={{ marginBottom: 32 }}>
+          {/* Row: label left, search right — both bottom-aligned */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 14 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "var(--dh-text-muted)", letterSpacing: "0.07em", textTransform: "uppercase" }}>
+              Companies
+            </span>
+            {/* Search — bottom-aligned to sit close to the grid */}
+            <div style={{
+              display: "flex", alignItems: "center", gap: 8,
+              background: "var(--dh-surface-input)",
+              border: "1px solid var(--dh-border)",
+              borderRadius: 8, padding: "6px 12px",
+              width: 200,
+            }}>
+              <Search size={13} color="var(--dh-text-muted)" />
+              <input
+                placeholder="Search companies..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                style={{
+                  flex: 1, background: "transparent", border: "none", outline: "none",
+                  fontSize: 12, color: "var(--dh-text-primary)", fontFamily: "'Figtree', sans-serif",
+                }}
+              />
+            </div>
+          </div>
 
-        {/* Company grid */}
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))",
-          gap: 10,
-          marginBottom: 40,
-        }}>
+          {/* Company grid */}
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))",
+            gap: 10,
+            marginBottom: 24,
+          }}>
           {/* ADD NEW card */}
           <button
             onClick={() => toast("Add company coming soon")}
@@ -202,7 +204,11 @@ export default function JobWatchList() {
               onRemove={() => setCompanies(prev => prev.filter(x => x.id !== c.id))}
             />
           ))}
-        </div>
+          </div>{/* end company grid */}
+
+          {/* Divider below companies, separating from tags */}
+          <div style={{ height: 1, background: "var(--dh-border)", marginTop: 8 }} />
+        </div>{/* end company section */}
 
         {/* Tags section */}
         <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>

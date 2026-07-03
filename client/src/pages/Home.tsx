@@ -16,19 +16,40 @@ import {
 } from "@carbon/icons-react";
 import NavRail from "@/components/NavRail";
 
-// ── Agent autocomplete suggestions ──────────────────────────────────────────
-const SUGGESTIONS = [
+// ── Agent autocomplete — phrase-completion bank ──────────────────────────────
+// Each entry is a full prompt. Suggestions are filtered to those that START
+// with (or contain) what the user has typed, so they feel like completions.
+const SUGGESTION_BANK = [
   "Design a landing page for a SaaS product",
+  "Design a dashboard for a fintech app",
+  "Design a mobile onboarding flow",
+  "Design a dark mode component library",
   "Create a color palette for a fintech brand",
+  "Create a moodboard for a luxury fashion brand",
+  "Create a type system for editorial design",
+  "Create a motion language for a product",
   "Brainstorm navigation patterns for mobile apps",
+  "Brainstorm names for a new design tool",
+  "Brainstorm ways to improve user retention",
   "Find inspiration for dark mode UI components",
+  "Find references for brutalist web design",
+  "Find typography pairings for a tech brand",
   "Summarize the latest design trends for 2025",
-  "Generate a moodboard for a luxury fashion brand",
+  "Summarize this week's design news",
   "Suggest typography pairings for editorial design",
+  "Suggest a visual direction for my project",
   "Research competitor apps in the health space",
+  "Research design systems used by top tech companies",
+  "Generate a moodboard for a luxury fashion brand",
+  "Generate icon ideas for a productivity app",
 ];
 
 // ── Job data ─────────────────────────────────────────────────────────────────
+// badgeType rules:
+//   "new"         = not seen since last session (posted < 8h ago)
+//   "urgent"      = deadline < 24h from now
+//   "recommended" = matched by watch-list criteria
+//   null          = no badge (most jobs)
 const JOB_CARDS_DATA = [
   {
     id: 1, company: "Figma", role: "Senior Product Designer",
@@ -38,19 +59,19 @@ const JOB_CARDS_DATA = [
   },
   {
     id: 2, company: "Notion", role: "UX Designer, Growth",
-    due: "Due Jul 20", posted: "5h ago", badge: "RECOMMENDED", badgeType: "recommended",
+    due: "Due Jul 20", posted: "5h ago", badge: null, badgeType: null,
     url: "https://www.notion.so/careers",
     logo: "https://cdn.simpleicons.org/notion/ffffff",
   },
   {
     id: 3, company: "Linear", role: "Product Designer",
-    due: "Due Aug 1", posted: "1d ago", badge: "NEW!", badgeType: "new",
+    due: "Due Jul 3", posted: "18h ago", badge: "URGENT", badgeType: "urgent",
     url: "https://linear.app/careers",
     logo: "https://cdn.simpleicons.org/linear/5E6AD2",
   },
   {
     id: 4, company: "Vercel", role: "Design Engineer",
-    due: "Due Jul 18", posted: "3h ago", badge: "URGENT", badgeType: "urgent",
+    due: "Due Jul 18", posted: "3d ago", badge: null, badgeType: null,
     url: "https://vercel.com/careers",
     logo: "https://cdn.simpleicons.org/vercel/ffffff",
   },
@@ -487,14 +508,22 @@ export default function Home() {
 
   const handleQueryChange = (val: string) => {
     setQuery(val);
-    if (val.trim().length < 2) {
+    const trimmed = val.trim();
+    if (trimmed.length < 2) {
       setSuggestions([]);
       setShowSuggestions(false);
       return;
     }
-    const filtered = SUGGESTIONS.filter(s => s.toLowerCase().includes(val.toLowerCase()));
-    setSuggestions(filtered.length > 0 ? filtered : SUGGESTIONS.slice(0, 4));
-    setShowSuggestions(true);
+    const lower = trimmed.toLowerCase();
+    // Priority 1: completions that start with what the user typed
+    const startsWith = SUGGESTION_BANK.filter(s => s.toLowerCase().startsWith(lower));
+    // Priority 2: completions that contain the typed text anywhere
+    const contains = SUGGESTION_BANK.filter(s =>
+      !s.toLowerCase().startsWith(lower) && s.toLowerCase().includes(lower)
+    );
+    const combined = [...startsWith, ...contains].slice(0, 5);
+    setSuggestions(combined.length > 0 ? combined : []);
+    setShowSuggestions(combined.length > 0);
   };
 
   const handleSuggestionClick = (s: string) => {
