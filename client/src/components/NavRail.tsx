@@ -10,7 +10,6 @@ import { useLocation } from "wouter";
 import { toast } from "sonner";
 import {
   Notification, Home, Folder, Bookmark, Settings, Add,
-  Chat, Grid, Code, Edit
 } from "@carbon/icons-react";
 
 interface NavRailProps {
@@ -23,13 +22,6 @@ const NAV_ITEMS = [
   { icon: Home, label: "Home", path: "/" },
   { icon: Folder, label: "Projects", path: "/projects" },
   { icon: Bookmark, label: "Saved", path: "/saved" },
-];
-
-const CANVAS_TOOLS = [
-  { icon: Chat, label: "Comments" },
-  { icon: Grid, label: "Board" },
-  { icon: Code, label: "Code" },
-  { icon: Edit, label: "Draw" },
 ];
 
 const RECENT_PROJECTS = [
@@ -217,26 +209,6 @@ export default function NavRail({ mode = "home", activeProject }: NavRailProps) 
           onClick={() => handleNav(path)}
         />
       ))}
-
-      {/* Canvas tools */}
-      {mode === "canvas" && (
-        <>
-          <div style={{
-            width: expanded ? "calc(100% - 28px)" : 24,
-            height: 1, background: "var(--dh-border)", margin: "6px auto",
-          }} />
-          {CANVAS_TOOLS.map(({ icon, label }) => (
-            <NavItem
-              key={label}
-              icon={icon}
-              label={label}
-              isActive={false}
-              expanded={expanded}
-              onClick={() => toast("Feature coming soon")}
-            />
-          ))}
-        </>
-      )}
 
       {/* Divider */}
       <div style={{
