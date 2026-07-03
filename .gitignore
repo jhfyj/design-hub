@@ -7,6 +7,9 @@ dist/
 build/
 *.dist
 
+# graphify knowledge graph output (regenerable)
+graphify-out/
+
 # Environment variables
 .env
 .env.local
