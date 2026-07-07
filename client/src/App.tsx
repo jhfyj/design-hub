@@ -7,6 +7,7 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
 import ProjectCanvas from "./pages/ProjectCanvas";
 import JobWatchList from "./pages/JobWatchList";
+import Archive from "./pages/Archive";
 
 function Router() {
   return (
@@ -15,6 +16,7 @@ function Router() {
       <Route path="/canvas/:id" component={ProjectCanvas} />
       <Route path="/canvas" component={ProjectCanvas} />
       <Route path="/job-watchlist" component={JobWatchList} />
+      <Route path="/archive" component={Archive} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

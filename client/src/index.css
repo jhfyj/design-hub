@@ -157,6 +157,45 @@
     background-size: 32px 32px;
   }
 
+  /* Shimmering skeleton block — used while spawned recommendation cards load */
+  @keyframes dh-shimmer-sweep {
+    0%   { background-position: -150% 0; }
+    100% { background-position: 150% 0; }
+  }
+  .dh-shimmer {
+    background: linear-gradient(90deg,
+      var(--dh-surface-raised) 25%, var(--dh-surface-input) 50%, var(--dh-surface-raised) 75%);
+    background-size: 200% 100%;
+    animation: dh-shimmer-sweep 1.4s ease-in-out infinite;
+    border-radius: 4px;
+  }
+
+  /* Auto-width text input — sizes to its own value instead of the browser's
+     default ~20ch input width, using the classic CSS-grid ghost-element
+     trick (no JS measuring needed). The invisible ::after mirrors the
+     input's value and is the grid's only in-flow child, so the grid track
+     (and therefore this wrapper) sizes to exactly that ghost text's width.
+     The <input> itself must stay position:absolute — a plain in-flow input
+     would also feed its own ~20ch native intrinsic width into the same
+     track's auto-sizing (taking the max of the two), silently reintroducing
+     the ballooning bug even with width:100% on it. */
+  .dh-autosize-text {
+    position: relative;
+    display: inline-grid;
+    align-items: center;
+  }
+  .dh-autosize-text::after {
+    content: attr(data-value) " ";
+    visibility: hidden;
+    white-space: pre;
+    grid-area: 1 / 1 / 2 / 2;
+  }
+  .dh-autosize-text > input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+  }
+
   /* Lime accent badge */
   .badge-lime {
     background-color: var(--dh-accent);

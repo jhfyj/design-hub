@@ -5,6 +5,15 @@ import fs from "node:fs";
 import path from "node:path";
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
+import { getFeedArticles } from "./server/tldrFeed";
+import { getInspoItems } from "./server/designInspoFeed";
+import { getLiveJobs } from "./server/jobsFeed";
+
+// Vite doesn't load .env into process.env for server-side/plugin code (only
+// import.meta.env for the client bundle) — load it explicitly so
+// server/tldrFeed.ts can read ANTHROPIC_API_KEY. No .env is fine too;
+// article selection just stays unconfigured (server/tldrFeed.ts errors clearly).
+try { process.loadEnvFile(); } catch { /* no .env present */ }
 
 // =============================================================================
 // Manus Debug Collector - Vite Plugin
@@ -150,6 +159,80 @@ function vitePluginManusDebugCollector(): Plugin {
   };
 }
 
+// Fetches the TLDR Design + UX Collective newsletters, splits TLDR's
+// multi-story digest pages into individual articles, and uses one batched
+// Anthropic call to pick the most product-designer-relevant subset and write
+// each one's "what you need to know"/"what it means to you" (server/tldrFeed.ts).
+// No-ops with a clear error if ANTHROPIC_API_KEY isn't set — never fakes it.
+function vitePluginTldrArticlesProxy(): Plugin {
+  return {
+    name: "design-hub-tldr-articles-proxy",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/tldr/articles", async (_req, res) => {
+        try {
+          const articles = await getFeedArticles();
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(articles));
+        } catch (err) {
+          res.writeHead(502, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: err instanceof Error ? err.message : "Feed fetch failed" }));
+        }
+      });
+    },
+  };
+}
+
+// Fetches Design Inspos board content from motion.dev (a static animation
+// example gallery) and are.na (public channels picked via channel search,
+// since its old site-wide discovery endpoint was sunset) — see
+// server/designInspoFeed.ts for the full source list and why other requested
+// sources (Dribbble, Mobbin, styles.refero.design) aren't included yet.
+function vitePluginDesignInspoProxy(): Plugin {
+  return {
+    name: "design-hub-inspo-proxy",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/design-inspo", async (_req, res) => {
+        try {
+          const items = await getInspoItems();
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(items));
+        } catch (err) {
+          res.writeHead(502, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: err instanceof Error ? err.message : "Feed fetch failed" }));
+        }
+      });
+    },
+  };
+}
+
+// Fetches live postings from each tracked company's public Greenhouse/Ashby
+// job board, filtered by the watch list's "must include"/"relevant" tags,
+// with an Anthropic call picking the "Agent Recommended" subset
+// (server/jobsFeed.ts). Falls back to a plain relevant-tag ranking if
+// ANTHROPIC_API_KEY isn't set — the live-jobs feature itself never depends
+// on it, unlike the TLDR feed above.
+function vitePluginJobsProxy(): Plugin {
+  return {
+    name: "design-hub-jobs-proxy",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/jobs", async (req, res) => {
+        try {
+          const url = new URL(req.url ?? "", "http://localhost");
+          const companies = (url.searchParams.get("companies") || "").split(",").map(s => s.trim()).filter(Boolean);
+          const must = (url.searchParams.get("must") || "").split(",").map(s => s.trim()).filter(Boolean);
+          const relevant = (url.searchParams.get("relevant") || "").split(",").map(s => s.trim()).filter(Boolean);
+          const result = await getLiveJobs(companies, must, relevant);
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(result));
+        } catch (err) {
+          res.writeHead(502, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: err instanceof Error ? err.message : "Job feed fetch failed" }));
+        }
+      });
+    },
+  };
+}
+
 function vitePluginStorageProxy(): Plugin {
   return {
     name: "manus-storage-proxy",
@@ -203,7 +286,7 @@ function vitePluginStorageProxy(): Plugin {
   };
 }
 
-const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector(), vitePluginStorageProxy()];
+const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector(), vitePluginStorageProxy(), vitePluginTldrArticlesProxy(), vitePluginDesignInspoProxy(), vitePluginJobsProxy()];
 
 export default defineConfig({
   plugins,

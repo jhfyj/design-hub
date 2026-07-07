@@ -48,8 +48,8 @@ All values are hex. Use CSS custom properties with these exact names.
 | `--color-accent-text` | `#E1FF00` | Text on dark when accent-coloured (e.g. nav label when active) |
 | `--color-text-primary` | `#FBFBFB` | Headings, primary body text |
 | `--color-text-secondary` | `#E1E1E1` | Secondary labels, card metadata |
-| `--color-text-muted` | `#888888` | Placeholders, hints, timestamps |
-| `--color-text-disabled` | `#515151` | Disabled states |
+| `--color-text-muted` | `#888888` | Placeholders, hints, timestamps. This is the darkest allowed color for any readable text — never use a darker gray for text, no matter how tertiary. |
+| `--color-text-disabled` | `#515151` | Disabled *component* states only (e.g. a disabled button/input fill) — never applied to text. |
 | `--color-agent` | `#FF00E9` | Magenta — agent suggestions, AI annotations on canvas |
 | `--color-graph-line` | `#1D3AFB` | Blue — connection lines between canvas nodes |
 | `--color-graph-suggestion` | `#E1FF00` | Dashed yellow — agent-suggested connections |
@@ -106,7 +106,7 @@ Cards and panels use **12–16px** radius. Buttons and chips use **8px**. Pills 
 
 ## Navigation Rail (Left Sidebar)
 
-The NavRail is a **floating pill** — not flush to the left wall. It has a fixed `left: 12px` offset, is vertically centered (`top: 50%; transform: translateY(-50%)`), and has a drop shadow. It is **identical on every screen** — the canvas does not add extra tool icons to the rail.
+The NavRail is a **floating pill** — not flush to the left wall. It has a fixed `left: 24px` offset, is vertically centered (`top: 50%; transform: translateY(-50%)`), and has a drop shadow. It is **identical on every screen** — the canvas does not add extra tool icons to the rail.
 
 ### Dimensions
 
@@ -142,6 +142,8 @@ The radius stays at **16px** in both states — only the width animates (`260ms 
 
 All icons use **IBM Carbon Icons React** (`@carbon/icons-react`). Never use Lucide or other icon libraries for NavRail or section headers.
 
+All checkmark affordances (Apply/Applied pills, Read button, and any future confirmation/done state) use the outline **`Checkmark`** icon, never `CheckmarkFilled`. Icon follows the label — text first, checkmark after (e.g. `Read ✓`, `Apply ✓`).
+
 ---
 
 ## Home Screen
@@ -158,6 +160,7 @@ The home screen is a vertically scrollable single-column layout with a dark dot-
 - Subtitle in `--text-body-lg` muted: `What are we working on today?`.
 - Agent input bar centered below. Typing surfaces **phrase-completion suggestions** in a dropdown that floats above all sections (z-index 9999). Suggestions are filtered by prefix-first then contains match against a suggestion bank. Clicking a suggestion fills the input.
 - The hero zone uses the dot-grid canvas texture as its background.
+- Hovering empty canvas space (not over a card or the center content column) shows a lime `+` cursor. Clicking that empty space spawns a new draggable recommendation card at the click point, same drag behavior as the original 4. It briefly shows a shimmering placeholder (Uber-style skeleton blocks), then cross-fades to a mock quote/book/music/movie recommendation. Hovering a spawned card reveals a dismiss (X) button top-right. Spawned cards are ephemeral — not persisted across reload, same as the original 4 cards' drag positions.
 
 ### Content Sections
 
@@ -279,22 +282,27 @@ A full-panel configuration screen accessed from the Job Board section header.
 
 | Source | Purpose | Integration method |
 |---|---|---|
-| Pinterest | Design Inspos board, canvas media search | Pinterest API / scraping |
-| LinkedIn | TLDR news feed | LinkedIn API |
-| Mobbin | Design Inspos board, canvas UI/UX search | Mobbin API / scraping |
+| TLDR Design + UX Collective | TLDR feed | RSS (`server/tldrFeed.ts`) — TLDR's multi-story digest pages are split into individual articles; both sources are relevance-filtered and given need/means insight via one batched Claude call per source |
+| motion.dev | Design Inspos board | Static scrape of `/examples` (`server/designInspoFeed.ts`) |
+| componentry.dev | Design Inspos board | Static scrape of `/docs` card grid (`server/designInspoFeed.ts`) — thumbnail is a single static frame, not the real hover-triggered animation, which is client-JS-rendered on the component's own page and out of reach of a server-side fetch; card links out to it. Full real component source (MIT-licensed, copy-paste by design) is embedded as plain text on each component's own page if we ever want to bring one in as an actual live component |
+| ui.aceternity.com | Design Inspos board | Structured JSON API at `/api/components` (`server/designInspoFeed.ts`) — explicitly named and invited for AI/LLM use in the site's own `llms.txt`, which supersedes its generic legacy `Disallow: /api/` in robots.txt. 23 of its 109 components ship a real preview video of the actual interaction (not just a static frame) — the card plays it on hover, pauses/resets on mouse-leave |
+| Are.na | Design Inspos board | Public channel-search API, since the old site-wide discovery endpoint was sunset — picks the top public channel per design-related query term (`server/designInspoFeed.ts`) |
 | Web search | Canvas search, general agent context | Web search MCP |
 
 ### Planned / Not Yet Integrated
 
-| Source | Intended purpose |
-|---|---|
-| Are.na | Design Inspos board |
-| Safari / web browsing | Canvas in-app browser, general research |
-| Company job boards | Job Board feed (direct scraping per watched company) |
-| Newsletters | TLDR feed (email parsing or RSS) |
-| Component websites | Design Inspos board |
-| Sound sources | Canvas sound node insertion |
-| Animation sources | Canvas animation node insertion |
+| Source | Intended purpose | Notes |
+|---|---|---|
+| Mobbin | Design Inspos board, canvas UI/UX search | Real screenshot library is client-rendered behind a login wall — needs an API key (user to provide) |
+| Dribbble | Design Inspos board | Blocked by an AWS WAF bot-challenge on direct scraping; needs an official API/OAuth app |
+| Pinterest | Design Inspos board, canvas media search | Not yet investigated |
+| LinkedIn | (dropped) | Explicitly declined — no compliant API access for personal feed reading; scraping would violate LinkedIn's ToS |
+| styles.refero.design | Design Inspos board | Excluded — its `robots.txt` explicitly disallows Claude/AI crawlers |
+| Safari / web browsing | Canvas in-app browser, general research | |
+| Company job boards | Job Board feed (direct scraping per watched company) | |
+| Component websites (e.g. componentry.dev) | Design Inspos board | No visual gallery to scrape — docs/code reference only |
+| Sound sources | Canvas sound node insertion | |
+| Animation sources | Canvas animation node insertion | |
 
 ### Agent (Claude API)
 
@@ -323,6 +331,7 @@ When building new screens, follow these rules:
 11. **Icon library**: All icons use **IBM Carbon Icons React** (`@carbon/icons-react`). Section header icons are always white regardless of active state. Never use Lucide or other icon libraries.
 12. **Masonry for inspo content**: Any inspirational image grid (home inspo board, canvas media search) uses masonry layout with variable tile heights.
 13. **Status badges**: Always use the defined color semantics — lime for new/recommended, red for urgent, no other status colors.
+14. **Page content alignment**: The content wrapper next to `NavRail` always reserves a `marginLeft: 72` gutter so content never sits under the rail (`<div style={{ marginLeft: 72, flex: 1, ... }}>`). Center the actual content in a nested `maxWidth` + `margin: "0 auto"` div within that gutter-adjusted area. This is how Home, Job Watch List, and Archive all do it — match it for every new full-page screen. (Project Canvas is the exception — it's an edge-to-edge pan/zoom surface, not a scrollable page, so NavRail floats over it with no gutter.)
 
 ---
 

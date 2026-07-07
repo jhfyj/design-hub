@@ -140,7 +140,7 @@ export default function NavRail({ mode = "home", activeProject }: NavRailProps) 
       onMouseLeave={() => setExpanded(false)}
       style={{
         position: "fixed",
-        left: 12,
+        left: 24,
         top: "50%",
         transform: "translateY(-50%)",
         zIndex: 50,
