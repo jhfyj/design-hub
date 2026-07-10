@@ -59,3 +59,9 @@
 - [x] Add HTML scrape fallback: fetch the discovered careers URL, extract job title+link pairs with DOM parsing
 - [x] Update KNOWN_ATS: add Lever entries for companies known to use it (e.g. Discord)
 - [x] Extend fetchCompanyJobsUncached to try Lever before HTML scrape
+
+## Localhost / Outside-Manus Support
+
+- [x] Patch invokeLLM to fall back to direct Anthropic API (claude-haiku-4-5) when BUILT_IN_FORGE_API_KEY is absent
+- [x] Create .env.local.example with all required variables and instructions
+- [x] Update README with localhost setup steps

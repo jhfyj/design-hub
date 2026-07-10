@@ -1,4 +1,8 @@
 import "dotenv/config";
+// Also load .env.local if present — used for local development outside Manus.
+// dotenv/config only loads .env by default; .env.local overrides it.
+import { config as loadDotenvLocal } from "dotenv";
+loadDotenvLocal({ path: ".env.local", override: false });
 import express from "express";
 import { createServer } from "http";
 import net from "net";

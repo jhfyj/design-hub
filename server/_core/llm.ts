@@ -212,15 +212,33 @@ const normalizeToolChoice = (
   return toolChoice;
 };
 
-const resolveApiUrl = () =>
-  ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
-    ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`
-    : "https://forge.manus.im/v1/chat/completions";
+// When running outside Manus (localhost, CI, self-hosted), BUILT_IN_FORGE_API_KEY
+// is absent or invalid. In that case we fall back to calling the Anthropic API
+// directly using ANTHROPIC_API_KEY. The request shape is identical — Anthropic's
+// /v1/messages endpoint is NOT compatible with the OpenAI chat/completions format,
+// so we use a thin adapter that maps the OpenAI-style payload to Anthropic's format.
+const isManusForgeAvailable = () =>
+  Boolean(ENV.forgeApiKey && ENV.forgeApiKey.trim().length > 0);
+
+const resolveApiUrl = () => {
+  if (isManusForgeAvailable()) {
+    return ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
+      ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`
+      : "https://forge.manus.im/v1/chat/completions";
+  }
+  // Direct Anthropic OpenAI-compatible endpoint
+  return "https://api.anthropic.com/v1/messages";
+};
+
+const resolveApiKey = () => {
+  if (isManusForgeAvailable()) return ENV.forgeApiKey;
+  const anthropicKey = process.env.ANTHROPIC_API_KEY ?? "";
+  if (!anthropicKey) throw new Error("No LLM API key configured. Set BUILT_IN_FORGE_API_KEY (Manus) or ANTHROPIC_API_KEY (localhost).");
+  return anthropicKey;
+};
 
 const assertApiKey = () => {
-  if (!ENV.forgeApiKey) {
-    throw new Error("OPENAI_API_KEY is not configured");
-  }
+  resolveApiKey(); // throws if neither key is available
 };
 
 const normalizeResponseFormat = ({
@@ -401,13 +419,48 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.response_format = normalizedResponseFormat;
   }
 
-  const response = await fetchWithBackoff(resolveApiUrl(), {
-    method: "POST",
-    headers: {
+  const apiUrl = resolveApiUrl();
+  const apiKey = resolveApiKey();
+  const usingAnthropic = !isManusForgeAvailable();
+
+  // When calling Anthropic directly, we need to:
+  //  1. Use x-api-key header instead of Authorization: Bearer
+  //  2. Add anthropic-version header
+  //  3. Rename max_tokens → max_tokens (same), but ensure it's set (Anthropic requires it)
+  //  4. Map the OpenAI messages format to Anthropic's format (system prompt extracted)
+  let requestBody: Record<string, unknown>;
+  let requestHeaders: Record<string, string>;
+
+  if (usingAnthropic) {
+    // Extract system message if present
+    const messages = payload.messages as Array<{ role: string; content: string }>;
+    const systemMsg = messages.find(m => m.role === "system");
+    const nonSystemMessages = messages.filter(m => m.role !== "system");
+
+    requestBody = {
+      model: (payload.model as string) || "claude-haiku-4-5-20251001",
+      max_tokens: (payload.max_tokens as number) || 1024,
+      messages: nonSystemMessages,
+      ...(systemMsg ? { system: systemMsg.content } : {}),
+      ...(payload.response_format ? {} : {}), // Anthropic uses different structured output syntax
+    };
+    requestHeaders = {
       "content-type": "application/json",
-      authorization: `Bearer ${ENV.forgeApiKey}`,
-    },
-    body: JSON.stringify(payload),
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+    };
+  } else {
+    requestBody = payload;
+    requestHeaders = {
+      "content-type": "application/json",
+      authorization: `Bearer ${apiKey}`,
+    };
+  }
+
+  const response = await fetchWithBackoff(apiUrl, {
+    method: "POST",
+    headers: requestHeaders,
+    body: JSON.stringify(requestBody),
   });
 
   if (!response.ok) {
@@ -417,7 +470,38 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     );
   }
 
-  return (await response.json()) as InvokeResult;
+  const raw = await response.json();
+
+  // Anthropic returns a different response shape than OpenAI. Normalize it
+  // back to the OpenAI InvokeResult shape so all callers work unchanged.
+  if (usingAnthropic) {
+    type AnthropicResponse = {
+      id: string;
+      model: string;
+      content: Array<{ type: string; text?: string }>;
+      stop_reason: string | null;
+      usage?: { input_tokens: number; output_tokens: number };
+    };
+    const a = raw as AnthropicResponse;
+    const textContent = a.content.find(b => b.type === "text")?.text ?? "";
+    return {
+      id: a.id,
+      created: Date.now(),
+      model: a.model,
+      choices: [{
+        index: 0,
+        message: { role: "assistant", content: textContent },
+        finish_reason: a.stop_reason,
+      }],
+      usage: a.usage ? {
+        prompt_tokens: a.usage.input_tokens,
+        completion_tokens: a.usage.output_tokens,
+        total_tokens: a.usage.input_tokens + a.usage.output_tokens,
+      } : undefined,
+    } as InvokeResult;
+  }
+
+  return raw as InvokeResult;
 }
 
 export type ModelInfo = {
