@@ -133,6 +133,15 @@ export function useTodoStore() {
     ));
   }, [update]);
 
+  const renameTask = useCallback((listId: number, taskId: number, text: string) => {
+    update(prev => prev.map(l =>
+      l.id !== listId ? l : {
+        ...l,
+        tasks: l.tasks.map(t => (t.id === taskId ? { ...t, text } : t)),
+      }
+    ));
+  }, [update]);
+
   const toggleTask = useCallback((listId: number, taskId: number) => {
     update(prev => prev.map(l => {
       if (l.id !== listId) return l;
@@ -225,5 +234,5 @@ export function useTodoStore() {
     return () => clearInterval(id);
   }, [lists]);
 
-  return { lists, addList, renameList, deleteList, addTask, toggleTask, startTimer, pauseTimer, setCustomMinutes, bumpByInterval, reorderTasks };
+  return { lists, addList, renameList, deleteList, addTask, renameTask, toggleTask, startTimer, pauseTimer, setCustomMinutes, bumpByInterval, reorderTasks };
 }

@@ -22,7 +22,9 @@ const EASE_OUT: [number, number, number, number] = [0.4, 0, 0.2, 1];
 
 function TaskRow({
   task, onToggle, onPlay, onPause, onBumpInterval, editingTime, timeDraft,
-  onStartEditTime, onTimeDraftChange, onCommitEditTime, onCancelEditTime, muted,
+  onStartEditTime, onTimeDraftChange, onCommitEditTime, onCancelEditTime,
+  editingText, textDraft, onStartEditText, onTextDraftChange, onCommitEditText, onCancelEditText,
+  muted,
 }: {
   task: TodoTask;
   onToggle: () => void;
@@ -35,6 +37,12 @@ function TaskRow({
   onTimeDraftChange: (v: string) => void;
   onCommitEditTime: () => void;
   onCancelEditTime: () => void;
+  editingText: boolean;
+  textDraft: string;
+  onStartEditText: () => void;
+  onTextDraftChange: (v: string) => void;
+  onCommitEditText: () => void;
+  onCancelEditText: () => void;
   muted?: boolean;
 }) {
   const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -93,29 +101,52 @@ function TaskRow({
           )}
         </AnimatePresence>
       </button>
-      <span style={{
-        position: "relative", flex: 1, minWidth: 0, fontSize: 13,
-        color: task.completed ? "var(--dh-text-muted)" : "var(--dh-text-secondary)",
-        fontFamily: "'Figtree', sans-serif",
-        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-      }}>
-        {task.text}
-        <AnimatePresence>
-          {task.completed && (
-            <motion.span
-              initial={{ scaleX: 0 }}
-              animate={{ scaleX: 1 }}
-              exit={{ scaleX: 0 }}
-              transition={{ duration: 0.25, ease: EASE_OUT }}
-              style={{
-                position: "absolute", left: 0, right: 0, top: "50%",
-                height: 1, background: "var(--dh-text-muted)",
-                transformOrigin: "left", pointerEvents: "none",
-              }}
-            />
-          )}
-        </AnimatePresence>
-      </span>
+      {editingText ? (
+        <input
+          autoFocus
+          value={textDraft}
+          onFocus={e => e.currentTarget.select()}
+          onChange={e => onTextDraftChange(e.target.value)}
+          onBlur={onCommitEditText}
+          onKeyDown={e => {
+            if (e.key === "Enter") onCommitEditText();
+            if (e.key === "Escape") onCancelEditText();
+          }}
+          style={{
+            flex: 1, minWidth: 0, fontSize: 13,
+            background: "transparent", border: "none", outline: "none",
+            color: "var(--dh-text-primary)", fontFamily: "'Figtree', sans-serif",
+          }}
+        />
+      ) : (
+        <span
+          onDoubleClick={onStartEditText}
+          title="Double-click to edit"
+          style={{
+            position: "relative", flex: 1, minWidth: 0, fontSize: 13,
+            color: task.completed ? "var(--dh-text-muted)" : "var(--dh-text-secondary)",
+            fontFamily: "'Figtree', sans-serif",
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}
+        >
+          {task.text}
+          <AnimatePresence>
+            {task.completed && (
+              <motion.span
+                initial={{ scaleX: 0 }}
+                animate={{ scaleX: 1 }}
+                exit={{ scaleX: 0 }}
+                transition={{ duration: 0.25, ease: EASE_OUT }}
+                style={{
+                  position: "absolute", left: 0, right: 0, top: "50%",
+                  height: 1, background: "var(--dh-text-muted)",
+                  transformOrigin: "left", pointerEvents: "none",
+                }}
+              />
+            )}
+          </AnimatePresence>
+        </span>
+      )}
       <div style={{
         display: "flex", alignItems: "center", gap: 3, flexShrink: 0,
         background: "var(--dh-surface-raised)", borderRadius: 6,
@@ -192,6 +223,12 @@ interface TodoListPillProps {
   onTimeDraftChange: (v: string) => void;
   onCommitEditTime: () => void;
   onCancelEditTime: () => void;
+  editingTextTaskId: number | null;
+  textDraft: string;
+  onStartEditText: (taskId: number, current: TodoTask) => void;
+  onTextDraftChange: (v: string) => void;
+  onCommitEditText: () => void;
+  onCancelEditText: () => void;
   addingTask: boolean;
   newTaskText: string;
   onStartAddTask: () => void;
@@ -206,6 +243,8 @@ function TodoListPill({
   onToggleTask, onPlay, onPause, onBumpInterval, onReorderActive,
   editingTimeTaskId, timeDraft, onStartEditTime,
   onTimeDraftChange, onCommitEditTime, onCancelEditTime,
+  editingTextTaskId, textDraft, onStartEditText,
+  onTextDraftChange, onCommitEditText, onCancelEditText,
   addingTask, newTaskText, onStartAddTask,
   onNewTaskTextChange, onCommitAddTask, onCancelAddTask,
 }: TodoListPillProps) {
@@ -325,6 +364,12 @@ function TodoListPill({
                         onTimeDraftChange={onTimeDraftChange}
                         onCommitEditTime={onCommitEditTime}
                         onCancelEditTime={onCancelEditTime}
+                        editingText={editingTextTaskId === task.id}
+                        textDraft={textDraft}
+                        onStartEditText={() => onStartEditText(task.id, task)}
+                        onTextDraftChange={onTextDraftChange}
+                        onCommitEditText={onCommitEditText}
+                        onCancelEditText={onCancelEditText}
                       />
                     </Reorder.Item>
                   ))}
@@ -386,6 +431,12 @@ function TodoListPill({
                         onTimeDraftChange={onTimeDraftChange}
                         onCommitEditTime={onCommitEditTime}
                         onCancelEditTime={onCancelEditTime}
+                        editingText={editingTextTaskId === task.id}
+                        textDraft={textDraft}
+                        onStartEditText={() => onStartEditText(task.id, task)}
+                        onTextDraftChange={onTextDraftChange}
+                        onCommitEditText={onCommitEditText}
+                        onCancelEditText={onCancelEditText}
                       />
                     ))}
                   </AnimatePresence>
@@ -401,7 +452,7 @@ function TodoListPill({
 
 export default function TodoWidget() {
   const {
-    lists, addList, renameList, deleteList, addTask, toggleTask, startTimer, pauseTimer,
+    lists, addList, renameList, deleteList, addTask, renameTask, toggleTask, startTimer, pauseTimer,
     setCustomMinutes, bumpByInterval, reorderTasks,
   } = useTodoStore();
   const [expandedId, setExpandedId] = useState<number | null>(lists[0]?.id ?? null);
@@ -412,6 +463,8 @@ export default function TodoWidget() {
   const [contextMenu, setContextMenu] = useState<{ listId: number; x: number; y: number } | null>(null);
   const [editingTime, setEditingTime] = useState<{ listId: number; taskId: number } | null>(null);
   const [timeDraft, setTimeDraft] = useState("");
+  const [editingTaskText, setEditingTaskText] = useState<{ listId: number; taskId: number } | null>(null);
+  const [taskTextDraft, setTaskTextDraft] = useState("");
 
   const commitRename = () => {
     if (renamingId != null && draftName.trim()) renameList(renamingId, draftName.trim());
@@ -432,6 +485,13 @@ export default function TodoWidget() {
       }
     }
     setEditingTime(null);
+  };
+
+  const commitEditTaskText = () => {
+    if (editingTaskText && taskTextDraft.trim()) {
+      renameTask(editingTaskText.listId, editingTaskText.taskId, taskTextDraft.trim());
+    }
+    setEditingTaskText(null);
   };
 
   return (
@@ -471,6 +531,15 @@ export default function TodoWidget() {
               onTimeDraftChange={setTimeDraft}
               onCommitEditTime={commitEditTime}
               onCancelEditTime={() => setEditingTime(null)}
+              editingTextTaskId={editingTaskText?.listId === list.id ? editingTaskText.taskId : null}
+              textDraft={taskTextDraft}
+              onStartEditText={(taskId, task) => {
+                setEditingTaskText({ listId: list.id, taskId });
+                setTaskTextDraft(task.text);
+              }}
+              onTextDraftChange={setTaskTextDraft}
+              onCommitEditText={commitEditTaskText}
+              onCancelEditText={() => setEditingTaskText(null)}
               addingTask={addingTaskFor === list.id}
               newTaskText={newTaskText}
               onStartAddTask={() => { setAddingTaskFor(list.id); setNewTaskText(""); }}

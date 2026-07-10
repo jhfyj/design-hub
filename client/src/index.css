@@ -170,6 +170,15 @@
     border-radius: 4px;
   }
 
+  /* Spinning refresh icon — applied to a SectionHeader's Renew icon while its
+     section is actively refetching. */
+  @keyframes dh-spin {
+    to { transform: rotate(-360deg); }
+  }
+  .dh-spin {
+    animation: dh-spin 0.7s linear infinite;
+  }
+
   /* Auto-width text input — sizes to its own value instead of the browser's
      default ~20ch input width, using the classic CSS-grid ghost-element
      trick (no JS measuring needed). The invisible ::after mirrors the

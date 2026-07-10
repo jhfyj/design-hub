@@ -70,11 +70,16 @@ export function useInspoStore() {
     fetchPool();
   }, [fetchPool]);
 
+  // Reshuffling is instant (client-side only, no refetch) — the brief
+  // loading pulse exists purely so the refresh button's icon has something
+  // to spin against.
   const reshuffle = useCallback(() => {
+    setLoading(true);
     const shuffled = shuffleArray(pool);
     setPool(shuffled);
     setItems(shuffled.slice(0, INITIAL_COUNT));
     setBatchesLoaded(0);
+    setTimeout(() => setLoading(false), 400);
   }, [pool]);
 
   const loadMore = useCallback(() => {

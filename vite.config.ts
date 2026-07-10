@@ -8,6 +8,7 @@ import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
 import { getFeedArticles } from "./server/tldrFeed";
 import { getInspoItems } from "./server/designInspoFeed";
 import { getLiveJobs } from "./server/jobsFeed";
+import { searchCompanies } from "./server/companySearch";
 
 // Vite doesn't load .env into process.env for server-side/plugin code (only
 // import.meta.env for the client bundle) — load it explicitly so
@@ -233,6 +234,28 @@ function vitePluginJobsProxy(): Plugin {
   };
 }
 
+// Company name/logo autocomplete for the Job Watch List's Add Company modal
+// (server/companySearch.ts) — proxies Clearbit's public Autocomplete API so
+// any company (not just a hardcoded list) is searchable.
+function vitePluginCompanySearchProxy(): Plugin {
+  return {
+    name: "design-hub-company-search-proxy",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/company-search", async (req, res) => {
+        try {
+          const url = new URL(req.url ?? "", "http://localhost");
+          const results = await searchCompanies(url.searchParams.get("q") || "");
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(results));
+        } catch (err) {
+          res.writeHead(502, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: err instanceof Error ? err.message : "Company search failed" }));
+        }
+      });
+    },
+  };
+}
+
 function vitePluginStorageProxy(): Plugin {
   return {
     name: "manus-storage-proxy",
@@ -286,7 +309,7 @@ function vitePluginStorageProxy(): Plugin {
   };
 }
 
-const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector(), vitePluginStorageProxy(), vitePluginTldrArticlesProxy(), vitePluginDesignInspoProxy(), vitePluginJobsProxy()];
+const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector(), vitePluginStorageProxy(), vitePluginTldrArticlesProxy(), vitePluginDesignInspoProxy(), vitePluginJobsProxy(), vitePluginCompanySearchProxy()];
 
 export default defineConfig({
   plugins,

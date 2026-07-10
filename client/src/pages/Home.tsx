@@ -20,6 +20,9 @@ import NavRail from "@/components/NavRail";
 import TodoWidget from "@/components/TodoWidget";
 import { useTldrStore, formatArticleTime, type TldrArticle } from "@/lib/tldrStore";
 import { useInspoStore } from "@/lib/inspoStore";
+import { useJobWatchStore } from "@/lib/jobWatchStore";
+import { useJobStore, type LiveJob } from "@/lib/jobStore";
+import { companyLogoUrl } from "@/lib/companyLogo";
 
 // Enter/exit + layout-reflow curve — matches the removal animation these
 // cards already used, see .claude/skills/motion/SKILL.md.
@@ -63,46 +66,28 @@ const SUGGESTION_BANK = [
 ];
 
 // ── Job data ─────────────────────────────────────────────────────────────────
-// badgeType is derived, not stored — see getJobBadgeType below:
+// Live postings pulled from each watch-listed company's real public job
+// board (server/jobsFeed.ts via useJobStore) — no mock data. badgeType is
+// derived, not stored — see getJobBadgeType below:
 //   "new"    = posted < 8h ago
-//   "urgent" = deadline < 24h from now
+//   "urgent" = deadline < 24h from now (real postings have no deadline, so
+//              this only ever applies if dueAt happens to be set)
 //   null     = no badge (most jobs)
 const JOB_HOUR = 60 * 60 * 1000;
 const JOB_DAY = 24 * JOB_HOUR;
 const JOB_NOW = Date.now();
 
-interface JobData {
-  id: number;
-  company: string;
-  role: string;
-  postedAt: number;
-  dueAt: number;
-  url: string;
+interface JobData extends LiveJob {
+  dueAt?: number;
   logo: string;
 }
 
-// Pool backing the Job Board's two rows — deliberately more than fits on
-// screen so "load more" has real inventory to reveal.
-const JOB_CARDS_DATA: JobData[] = [
-  { id: 1, company: "Figma", role: "Senior Product Designer", postedAt: JOB_NOW - 2 * JOB_HOUR, dueAt: JOB_NOW + 12 * JOB_DAY, url: "https://www.figma.com/careers", logo: "https://cdn.simpleicons.org/figma/F24E1E" },
-  { id: 2, company: "Notion", role: "UX Designer, Growth", postedAt: JOB_NOW - 5 * JOB_HOUR, dueAt: JOB_NOW + 17 * JOB_DAY, url: "https://www.notion.so/careers", logo: "https://cdn.simpleicons.org/notion/ffffff" },
-  { id: 3, company: "Linear", role: "Product Designer", postedAt: JOB_NOW - 18 * JOB_HOUR, dueAt: JOB_NOW + 14 * JOB_HOUR, url: "https://linear.app/careers", logo: "https://cdn.simpleicons.org/linear/5E6AD2" },
-  { id: 4, company: "Vercel", role: "Design Engineer", postedAt: JOB_NOW - 3 * JOB_DAY, dueAt: JOB_NOW + 15 * JOB_DAY, url: "https://vercel.com/careers", logo: "https://cdn.simpleicons.org/vercel/ffffff" },
-  { id: 5, company: "Stripe", role: "Product Designer, Payments", postedAt: JOB_NOW - 1 * JOB_HOUR, dueAt: JOB_NOW + 20 * JOB_DAY, url: "https://stripe.com/jobs", logo: "https://cdn.simpleicons.org/stripe/635BFF" },
-  { id: 6, company: "Framer", role: "Interaction Designer", postedAt: JOB_NOW - 20 * JOB_HOUR, dueAt: JOB_NOW + 9 * JOB_HOUR, url: "https://www.framer.com/careers", logo: "https://cdn.simpleicons.org/framer/ffffff" },
-  { id: 7, company: "Airbnb", role: "Senior UX Designer", postedAt: JOB_NOW - 4 * JOB_DAY, dueAt: JOB_NOW + 22 * JOB_DAY, url: "https://careers.airbnb.com", logo: "https://cdn.simpleicons.org/airbnb/FF5A5F" },
-  { id: 8, company: "Duolingo", role: "Product Designer, Growth", postedAt: JOB_NOW - 6 * JOB_HOUR, dueAt: JOB_NOW + 16 * JOB_DAY, url: "https://careers.duolingo.com", logo: "https://cdn.simpleicons.org/duolingo/58CC02" },
-  { id: 9, company: "Shopify", role: "Design Systems Designer", postedAt: JOB_NOW - 6 * JOB_DAY, dueAt: JOB_NOW + 11 * JOB_DAY, url: "https://www.shopify.com/careers", logo: "https://cdn.simpleicons.org/shopify/95BF47" },
-  { id: 10, company: "Discord", role: "Product Designer, Social", postedAt: JOB_NOW - 30 * JOB_HOUR, dueAt: JOB_NOW + 5 * JOB_HOUR, url: "https://discord.com/careers", logo: "https://cdn.simpleicons.org/discord/5865F2" },
-];
-
-// Agent-recommended row — jobs the agent surfaced as relevant even though
-// they don't match the user's saved watch-list criteria. Always flagged
-// with the AI-generated star; not part of the paginated pool above.
-const AI_RECOMMENDED_JOBS_DATA: JobData[] = [
-  { id: 101, company: "Superhuman", role: "Senior Product Designer", postedAt: JOB_NOW - 7 * JOB_HOUR, dueAt: JOB_NOW + 19 * JOB_DAY, url: "https://superhuman.com/careers", logo: "https://cdn.simpleicons.org/superhuman/ffffff" },
-  { id: 102, company: "Arc (The Browser Company)", role: "Product Designer", postedAt: JOB_NOW - 2 * JOB_DAY, dueAt: JOB_NOW + 13 * JOB_DAY, url: "https://thebrowser.company/jobs", logo: "https://cdn.simpleicons.org/arc/ffffff" },
-];
+// getJobBadgeType/isJobExpired only need timing fields — this lets them
+// take a plain LiveJob (before a logo has been attached) or a full JobData.
+interface JobTiming {
+  postedAt: number;
+  dueAt?: number;
+}
 
 function formatPostedAgo(postedAt: number): string {
   const diff = JOB_NOW - postedAt;
@@ -120,16 +105,18 @@ const JOB_PAGE_SIZE = 4;
 
 type JobBadgeType = "new" | "urgent" | null;
 
-function getJobBadgeType(job: JobData): JobBadgeType {
+function getJobBadgeType(job: JobTiming): JobBadgeType {
   if (JOB_NOW - job.postedAt < 8 * JOB_HOUR) return "new";
-  if (job.dueAt - JOB_NOW < 24 * JOB_HOUR) return "urgent";
+  if (job.dueAt !== undefined && job.dueAt - JOB_NOW < 24 * JOB_HOUR) return "urgent";
   return null;
 }
 
-// A role stops being worth showing once its deadline has passed, or a month
-// after it was posted (whichever comes first) even if the deadline is later.
-function isJobExpired(job: JobData): boolean {
-  return job.dueAt < JOB_NOW || JOB_NOW - job.postedAt > 30 * JOB_DAY;
+// A role stops being worth showing once its deadline has passed (if it even
+// has one — real postings don't), or a month after it was posted (whichever
+// comes first) even if the deadline is later.
+function isJobExpired(job: JobTiming): boolean {
+  if (job.dueAt !== undefined && job.dueAt < JOB_NOW) return true;
+  return JOB_NOW - job.postedAt > 30 * JOB_DAY;
 }
 
 // Newest jobs first, then urgent ones, then everything else — each group
@@ -137,7 +124,7 @@ function isJobExpired(job: JobData): boolean {
 function sortJobsForDisplay(list: JobData[]): JobData[] {
   const tagged = list.map(job => ({ job, badge: getJobBadgeType(job) }));
   const newest = tagged.filter(t => t.badge === "new").sort((a, b) => b.job.postedAt - a.job.postedAt);
-  const urgent = tagged.filter(t => t.badge === "urgent").sort((a, b) => a.job.dueAt - b.job.dueAt);
+  const urgent = tagged.filter(t => t.badge === "urgent").sort((a, b) => (a.job.dueAt ?? 0) - (b.job.dueAt ?? 0));
   const rest = tagged.filter(t => t.badge === null).sort((a, b) => b.job.postedAt - a.job.postedAt);
   return [...newest, ...urgent, ...rest].map(t => t.job);
 }
@@ -475,9 +462,19 @@ function JobCard({ card, onApply }: {
         {topRight()}
       </div>
 
-      {/* Date row — always visible */}
+      {/* Date row — always visible. Live postings have no deadline, so the
+          due date only shows up when one happens to be set; the work
+          format (Remote/Hybrid/In-person) always shows regardless. */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span style={{ fontSize: 11, color: "var(--dh-text-muted)", fontFamily: "'Fira Mono', monospace" }}>{formatDue(card.dueAt)}</span>
+        <span style={{ fontSize: 11, color: "var(--dh-text-muted)", fontFamily: "'Fira Mono', monospace", display: "flex", alignItems: "center", gap: 5 }}>
+          {card.dueAt !== undefined && (
+            <>
+              {formatDue(card.dueAt)}
+              <span style={{ width: 3, height: 3, borderRadius: "50%", background: "var(--dh-text-muted)", flexShrink: 0 }} />
+            </>
+          )}
+          {card.workplaceType}
+        </span>
         <span style={{ fontSize: 11, color: "var(--dh-text-muted)", fontFamily: "'Fira Mono', monospace" }}>{formatPostedAgo(card.postedAt)}</span>
       </div>
     </motion.div>
@@ -612,10 +609,10 @@ function SectionBoard({ children }: { children: React.ReactNode }) {
 }
 
 function SectionHeader({
-  icon: Icon, label, action, onAction, onRefresh
+  icon: Icon, label, action, onAction, onRefresh, refreshing
 }: {
   icon: React.ElementType; label: string; action?: string; onAction?: () => void;
-  onRefresh?: () => void;
+  onRefresh?: () => void; refreshing?: boolean;
 }) {
   const isRefresh = action === "refresh";
   return (
@@ -641,7 +638,7 @@ function SectionHeader({
             onMouseEnter={e => { e.currentTarget.style.background = "var(--dh-surface-raised)"; e.currentTarget.style.color = "var(--dh-text-primary)"; }}
             onMouseLeave={e => { e.currentTarget.style.background = "var(--dh-surface-input)"; e.currentTarget.style.color = "var(--dh-text-secondary)"; }}
           >
-            <Renew size={13} />
+            <Renew size={13} className={refreshing ? "dh-spin" : undefined} />
           </button>
         )}
         {action && (
@@ -659,7 +656,7 @@ function SectionHeader({
             onMouseLeave={e => { e.currentTarget.style.background = "var(--dh-surface-input)"; e.currentTarget.style.color = "var(--dh-text-secondary)"; }}
           >
             {isRefresh ? "Refresh" : action}
-            {isRefresh && <Renew size={13} />}
+            {isRefresh && <Renew size={13} className={refreshing ? "dh-spin" : undefined} />}
           </button>
         )}
       </div>
@@ -672,14 +669,24 @@ export default function Home() {
   const [, navigate] = useLocation();
   const [time, setTime] = useState("");
   const [tldrExpanded, setTldrExpanded] = useState(false);
-  const { unread: tldrUnread, markAsRead: markTldrRead, refreshFeed: refreshTldrFeed } = useTldrStore();
+  const { unread: tldrUnread, markAsRead: markTldrRead, refreshFeed: refreshTldrFeed, feedLoading: tldrLoading } = useTldrStore();
   const {
     items: inspoItems, loading: inspoLoading, loadingMore: inspoLoadingMore,
     reachedEnd: inspoReachedEnd, reshuffle: reshuffleInspo, loadMore: loadMoreInspo,
   } = useInspoStore();
-  const [jobs, setJobs] = useState(() => JOB_CARDS_DATA.filter(j => !isJobExpired(j)));
+  const { companies: watchedCompanies, mustTags, relevantTags } = useJobWatchStore();
+  const companyNames = watchedCompanies.map(c => c.name);
+  const {
+    jobs: liveJobs, recommendedJobs: liveRecommendedJobs,
+    loading: jobsLoading, refresh: refreshJobs,
+  } = useJobStore(companyNames, mustTags, relevantTags);
   const [jobPage, setJobPage] = useState(0);
-  const [recommendedJobs, setRecommendedJobs] = useState(() => AI_RECOMMENDED_JOBS_DATA.filter(j => !isJobExpired(j)));
+  // "Applied" is a session-local dismissal, not a persisted job-board
+  // action — the live jobs themselves come from useJobStore, not local state.
+  const [dismissedJobIds, setDismissedJobIds] = useState<Set<number>>(new Set());
+  const toJobData = (j: LiveJob): JobData => ({ ...j, logo: companyLogoUrl(j.company) });
+  const jobs = liveJobs.filter(j => !dismissedJobIds.has(j.id) && !isJobExpired(j)).map(toJobData);
+  const recommendedJobs = liveRecommendedJobs.filter(j => !dismissedJobIds.has(j.id) && !isJobExpired(j)).map(toJobData);
 
   // Spawned hero recommendation cards — ephemeral, resets on reload
   const [spawnedCards, setSpawnedCards] = useState<HeroCard[]>([]);
@@ -746,12 +753,7 @@ export default function Home() {
   };
 
   const handleApplyJob = (id: number) => {
-    setTimeout(() => setJobs(prev => prev.filter(j => j.id !== id)), 50);
-    toast("Application saved!");
-  };
-
-  const handleApplyRecommendedJob = (id: number) => {
-    setTimeout(() => setRecommendedJobs(prev => prev.filter(j => j.id !== id)), 50);
+    setTimeout(() => setDismissedJobIds(prev => new Set(prev).add(id)), 50);
     toast("Application saved!");
   };
 
@@ -761,8 +763,12 @@ export default function Home() {
   const handlePrevJobPage = () => setJobPage(p => Math.max(0, p - 1));
   const handleNextJobPage = () => setJobPage(p => Math.min(jobTotalPages - 1, p + 1));
 
-  // Job Board has no live source yet — still static mock data.
-  const handleRefreshJobs = () => toast("No live job feed connected yet");
+  // Pulls live postings from each watch-listed company's real job board
+  // (server/jobsFeed.ts), filtered/ranked by the watch list's tags.
+  const handleRefreshJobs = async () => {
+    const ok = await refreshJobs();
+    toast(ok ? "Job feed refreshed" : "Couldn't reach the job feed — showing last loaded postings");
+  };
 
   // TLDR pulls the real TLDR Design newsletter RSS feed (tldr.tech/design).
   const handleRefreshTldr = async () => {
@@ -977,10 +983,15 @@ export default function Home() {
               action="watchlist ≡"
               onAction={() => navigate("/job-watchlist")}
               onRefresh={handleRefreshJobs}
+              refreshing={jobsLoading}
             />
             {jobs.length === 0 ? (
               <div style={{ textAlign: "center", padding: "36px 0", color: "var(--dh-text-muted)", fontSize: 14 }}>
-                No more jobs to review. Check back later.
+                {jobsLoading
+                  ? "Pulling the latest postings from your watch-listed companies…"
+                  : watchedCompanies.length === 0
+                  ? "Add a company to your watch list to see live postings."
+                  : "No open roles match your watch list right now. Check back later."}
               </div>
             ) : (
               <>
@@ -1046,7 +1057,7 @@ export default function Home() {
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
                   {recommendedJobs.map(c => (
-                    <JobCard key={c.id} card={c} onApply={handleApplyRecommendedJob} />
+                    <JobCard key={c.id} card={c} onApply={handleApplyJob} />
                   ))}
                 </div>
               </>
@@ -1061,6 +1072,7 @@ export default function Home() {
               action="view archive"
               onAction={() => navigate("/archive")}
               onRefresh={handleRefreshTldr}
+              refreshing={tldrLoading}
             />
             {tldrUnread.length === 0 ? (
               <div style={{ textAlign: "center", padding: "36px 0", color: "var(--dh-text-muted)", fontSize: 14 }}>
@@ -1100,6 +1112,7 @@ export default function Home() {
               label="Design Inspos"
               action="refresh"
               onAction={handleRefreshInspo}
+              refreshing={inspoLoading}
             />
             <div
               onScroll={handleInspoScroll}

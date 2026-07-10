@@ -8,26 +8,8 @@ import { useLocation } from "wouter";
 import { toast } from "sonner";
 import { Search, Plus, X, ArrowLeft } from "lucide-react";
 import NavRail from "@/components/NavRail";
-
-interface Company {
-  id: number;
-  name: string;
-  url?: string;
-}
-
-const INITIAL_COMPANIES: Company[] = [
-  { id: 1, name: "FIGMA" },
-  { id: 2, name: "NOTION" },
-  { id: 3, name: "LINEAR" },
-  { id: 4, name: "VERCEL" },
-  { id: 5, name: "STRIPE" },
-  { id: 6, name: "LOOM" },
-  { id: 7, name: "MIRO" },
-  { id: 8, name: "FRAMER" },
-];
-
-const INITIAL_MUST = ["Product Designer", "UX Designer", "Design Engineer", "UI Designer"];
-const INITIAL_RELEVANT = ["Senior", "Lead", "Remote", "Full-time", "Startup", "Series B+"];
+import { useJobWatchStore, type Company } from "@/lib/jobWatchStore";
+import { companyLogoUrl, domainLogoUrl } from "@/lib/companyLogo";
 
 // Autocomplete pools for the tag inputs below — stand in for a real
 // role-taxonomy/company-attribute source.
@@ -43,25 +25,46 @@ const RELEVANT_SUGGESTIONS = [
   "Series A", "Series C+", "Public Company", "Equity",
 ];
 
-// Mock "known companies" pool the Add Company autocomplete suggests from —
-// stands in for a real company-lookup API. Picking a suggestion auto-fills
-// the careers URL so the user doesn't have to type it.
-const KNOWN_COMPANIES = [
-  { name: "Figma", url: "https://www.figma.com/careers" },
-  { name: "Notion", url: "https://www.notion.so/careers" },
-  { name: "Linear", url: "https://linear.app/careers" },
-  { name: "Vercel", url: "https://vercel.com/careers" },
-  { name: "Stripe", url: "https://stripe.com/jobs" },
-  { name: "Loom", url: "https://www.loom.com/careers" },
-  { name: "Miro", url: "https://miro.com/careers" },
-  { name: "Framer", url: "https://www.framer.com/careers" },
-  { name: "Airbnb", url: "https://careers.airbnb.com" },
-  { name: "Duolingo", url: "https://careers.duolingo.com" },
-  { name: "Pinterest", url: "https://www.pinterestcareers.com" },
-  { name: "Canva", url: "https://www.canva.com/careers" },
-  { name: "Discord", url: "https://discord.com/careers" },
-  { name: "Anthropic", url: "https://www.anthropic.com/careers" },
-];
+// A real company lookup (server/companySearch.ts, proxying Clearbit's public
+// Autocomplete API) — covers essentially any registered company, not just a
+// hand-picked list, so niche/less-common names are searchable too.
+interface CompanySuggestion {
+  name: string;
+  domain: string;
+}
+
+async function fetchCompanySuggestions(query: string): Promise<CompanySuggestion[]> {
+  const res = await fetch(`/api/company-search?q=${encodeURIComponent(query)}`);
+  if (!res.ok) return [];
+  return res.json();
+}
+
+// Small logo + first-letter-avatar fallback used in the Add Company
+// suggestion dropdown — domain-based (via client/src/lib/companyLogo.ts'
+// domainLogoUrl), which is an actual lookup rather than a name guess, with
+// an onError swap to a plain letter avatar for the rare miss.
+function SuggestionLogo({ name, domain }: { name: string; domain: string }) {
+  const [broken, setBroken] = useState(false);
+
+  return (
+    <div style={{
+      width: 20, height: 20, borderRadius: 6, flexShrink: 0,
+      background: "var(--dh-surface-raised)", overflow: "hidden",
+      display: "flex", alignItems: "center", justifyContent: "center",
+    }}>
+      {broken ? (
+        <span style={{ fontSize: 10, fontWeight: 700, color: "var(--dh-text-muted)" }}>{name[0]}</span>
+      ) : (
+        <img
+          src={domainLogoUrl(domain)}
+          alt=""
+          style={{ width: 13, height: 13, objectFit: "contain" }}
+          onError={() => setBroken(true)}
+        />
+      )}
+    </div>
+  );
+}
 
 function TagChip({ label, onRemove }: { label: string; onRemove: () => void }) {
   return (
@@ -219,8 +222,11 @@ function TagChipInput({ tags, onAdd, suggestions }: {
   );
 }
 
-function CompanyCard({ name, url, onRemove }: { name: string; url?: string; onRemove: () => void }) {
+function CompanyCard({ name, domain, onRemove, onEditLink }: {
+  name: string; domain?: string; onRemove: () => void; onEditLink: () => void;
+}) {
   const [hovered, setHovered] = useState(false);
+  const [logoBroken, setLogoBroken] = useState(false);
 
   return (
     <div
@@ -231,11 +237,11 @@ function CompanyCard({ name, url, onRemove }: { name: string; url?: string; onRe
         alignItems: "center",
         position: "relative",
         transition: "background 150ms",
-        cursor: url ? "pointer" : "default",
+        cursor: "pointer",
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      onClick={() => url && window.open(url, "_blank")}
+      onClick={onEditLink}
     >
       <button
         onClick={e => { e.stopPropagation(); onRemove(); }}
@@ -251,14 +257,24 @@ function CompanyCard({ name, url, onRemove }: { name: string; url?: string; onRe
       >
         <X size={12} />
       </button>
-      {/* Logo placeholder */}
+      {/* Logo frame — real domain-based logo when known (from company-search),
+          else a best-effort name guess, else a letter avatar */}
       <div style={{
         width: 48, height: 48, borderRadius: 10,
         background: "var(--dh-surface-input)",
         display: "flex", alignItems: "center", justifyContent: "center",
-        fontSize: 18, fontWeight: 700, color: "var(--dh-text-muted)",
+        overflow: "hidden",
       }}>
-        {name[0]}
+        {logoBroken ? (
+          <span style={{ fontSize: 18, fontWeight: 700, color: "var(--dh-text-muted)" }}>{name[0]}</span>
+        ) : (
+          <img
+            src={domain ? domainLogoUrl(domain) : companyLogoUrl(name)}
+            alt=""
+            style={{ width: 28, height: 28, objectFit: "contain" }}
+            onError={() => setLogoBroken(true)}
+          />
+        )}
       </div>
       <div style={{
         fontSize: 11, fontWeight: 700, color: "var(--dh-text-secondary)",
@@ -270,14 +286,119 @@ function CompanyCard({ name, url, onRemove }: { name: string; url?: string; onRe
   );
 }
 
+// ── Edit Link modal ─────────────────────────────────────────────────────────
+function EditLinkModal({ company, onClose, onSave }: {
+  company: Company;
+  onClose: () => void;
+  onSave: (url: string) => void;
+}) {
+  const [url, setUrl] = useState(company.url ?? "");
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  const handleSave = () => onSave(url.trim());
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        zIndex: 100,
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: "var(--dh-surface-card)",
+          borderRadius: 16, padding: 28,
+          width: 420, maxWidth: "90vw",
+          boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+          <h2 style={{
+            fontSize: 18, fontWeight: 700, color: "var(--dh-text-primary)",
+            letterSpacing: "0.03em", textTransform: "uppercase", margin: 0,
+          }}>
+            Edit Link — {company.name}
+          </h2>
+          <button
+            onClick={onClose}
+            style={{ background: "transparent", border: "none", color: "var(--dh-text-muted)", display: "flex", padding: 4 }}
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <div style={{ marginBottom: 24 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: "var(--dh-text-muted)", letterSpacing: "0.05em", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
+            Link to Company Careers Page
+          </label>
+          <input
+            autoFocus
+            placeholder="https://company.com/careers"
+            value={url}
+            onChange={e => setUrl(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") handleSave(); }}
+            style={{
+              width: "100%", background: "var(--dh-surface-input)",
+              border: "1px solid var(--dh-border)", borderRadius: 8,
+              padding: "10px 12px", fontSize: 13, color: "var(--dh-text-primary)",
+              fontFamily: "'Figtree', sans-serif", outline: "none",
+            }}
+          />
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+          <button
+            onClick={onClose}
+            style={{
+              background: "transparent", border: "none",
+              color: "var(--dh-text-muted)", fontSize: 13, padding: "8px 4px",
+              transition: "color 150ms",
+            }}
+            onMouseEnter={e => (e.currentTarget.style.color = "var(--dh-text-secondary)")}
+            onMouseLeave={e => (e.currentTarget.style.color = "var(--dh-text-muted)")}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            style={{
+              background: "var(--dh-accent)", color: "#1A1A1A",
+              border: "none", borderRadius: 8, padding: "8px 18px",
+              fontSize: 13, fontWeight: 700, fontFamily: "'Figtree', sans-serif",
+            }}
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Add Company modal ───────────────────────────────────────────────────────
 function AddCompanyModal({ onClose, onAdd }: {
   onClose: () => void;
-  onAdd: (company: { name: string; url: string }) => void;
+  onAdd: (company: { name: string; url?: string; domain?: string }) => void;
 }) {
   const [name, setName] = useState("");
+  // Not user-facing — silently filled in when a suggestion is picked, purely
+  // so its card can link out to the careers page and show a real logo. The
+  // agent finds each company's actual job board itself (server/jobsFeed.ts
+  // tries a pinned ATS slug, then guesses one from the name), so neither is
+  // ever required to add a company.
   const [url, setUrl] = useState("");
+  const [domain, setDomain] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [suggestions, setSuggestions] = useState<CompanySuggestion[]>([]);
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -286,26 +407,34 @@ function AddCompanyModal({ onClose, onAdd }: {
   }, [onClose]);
 
   const trimmed = name.trim();
-  const lower = trimmed.toLowerCase();
-  // Same prefix-first-then-contains ranking the home screen's agent
-  // autocomplete uses, so suggestions read as completions of what's typed.
-  const startsWith = KNOWN_COMPANIES.filter(c => c.name.toLowerCase().startsWith(lower));
-  const contains = KNOWN_COMPANIES.filter(c =>
-    !c.name.toLowerCase().startsWith(lower) && c.name.toLowerCase().includes(lower)
-  );
-  const suggestions = trimmed.length >= 1 ? [...startsWith, ...contains].slice(0, 5) : [];
 
-  const handlePickSuggestion = (company: { name: string; url: string }) => {
+  // Debounced live company lookup (server/companySearch.ts) — covers
+  // essentially any registered company, not just a hardcoded list.
+  useEffect(() => {
+    if (trimmed.length < 1) {
+      setSuggestions([]);
+      return;
+    }
+    const thisRequest = ++requestIdRef.current;
+    const id = setTimeout(async () => {
+      const results = await fetchCompanySuggestions(trimmed);
+      if (requestIdRef.current === thisRequest) setSuggestions(results.slice(0, 5));
+    }, 250);
+    return () => clearTimeout(id);
+  }, [trimmed]);
+
+  const handlePickSuggestion = (company: CompanySuggestion) => {
     setName(company.name);
-    setUrl(company.url);
+    setUrl(`https://${company.domain}/careers`);
+    setDomain(company.domain);
     setShowSuggestions(false);
   };
 
-  const canSubmit = trimmed.length > 0 && url.trim().length > 0;
+  const canSubmit = trimmed.length > 0;
 
   const handleSubmit = () => {
     if (!canSubmit) return;
-    onAdd({ name: trimmed, url: url.trim() });
+    onAdd({ name: trimmed, url: url.trim() || undefined, domain: domain || undefined });
   };
 
   return (
@@ -350,7 +479,7 @@ function AddCompanyModal({ onClose, onAdd }: {
             autoFocus
             placeholder="e.g. Figma"
             value={name}
-            onChange={e => { setName(e.target.value); setShowSuggestions(true); }}
+            onChange={e => { setName(e.target.value); setDomain(""); setUrl(""); setShowSuggestions(true); }}
             onFocus={() => name.trim().length >= 1 && setShowSuggestions(true)}
             onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
             style={{
@@ -369,7 +498,7 @@ function AddCompanyModal({ onClose, onAdd }: {
             }}>
               {suggestions.map((c, i) => (
                 <button
-                  key={c.name}
+                  key={c.domain}
                   onMouseDown={() => handlePickSuggestion(c)}
                   style={{
                     width: "100%", background: "transparent", border: "none",
@@ -377,34 +506,22 @@ function AddCompanyModal({ onClose, onAdd }: {
                     color: "var(--dh-text-secondary)", fontFamily: "'Figtree', sans-serif",
                     borderTop: i > 0 ? "1px solid var(--dh-border)" : "none",
                     transition: "background 100ms, color 100ms",
+                    display: "flex", alignItems: "center", gap: 8,
                   }}
                   onMouseEnter={e => { e.currentTarget.style.background = "var(--dh-surface-raised)"; e.currentTarget.style.color = "var(--dh-text-primary)"; }}
                   onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--dh-text-secondary)"; }}
                 >
-                  {c.name}
+                  <SuggestionLogo name={c.name} domain={c.domain} />
+                  <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
                 </button>
               ))}
             </div>
           )}
         </div>
 
-        {/* Careers link */}
-        <div style={{ marginBottom: 24 }}>
-          <label style={{ fontSize: 12, fontWeight: 600, color: "var(--dh-text-muted)", letterSpacing: "0.05em", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
-            Link to Company Careers Page
-          </label>
-          <input
-            placeholder="https://company.com/careers"
-            value={url}
-            onChange={e => setUrl(e.target.value)}
-            style={{
-              width: "100%", background: "var(--dh-surface-input)",
-              border: "1px solid var(--dh-border)", borderRadius: 8,
-              padding: "10px 12px", fontSize: 13, color: "var(--dh-text-primary)",
-              fontFamily: "'Figtree', sans-serif", outline: "none",
-            }}
-          />
-        </div>
+        <p style={{ fontSize: 12, color: "var(--dh-text-muted)", marginTop: -4, marginBottom: 24 }}>
+          We'll find their job board automatically — no link needed.
+        </p>
 
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
           <button
@@ -441,21 +558,28 @@ function AddCompanyModal({ onClose, onAdd }: {
 
 export default function JobWatchList() {
   const [, navigate] = useLocation();
-  const [companies, setCompanies] = useState<Company[]>(INITIAL_COMPANIES);
-  const [mustTags, setMustTags] = useState(INITIAL_MUST);
-  const [relevantTags, setRelevantTags] = useState(INITIAL_RELEVANT);
+  const {
+    companies, mustTags, relevantTags,
+    addCompany, removeCompany, updateCompanyUrl, addMustTag, removeMustTag, addRelevantTag, removeRelevantTag,
+  } = useJobWatchStore();
   const [search, setSearch] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
-  const nextCompanyId = useRef(1000);
+  const [editingCompany, setEditingCompany] = useState<Company | null>(null);
 
   const filtered = companies.filter(c =>
     c.name.toLowerCase().includes(search.toLowerCase())
   );
 
-  const handleAddCompany = ({ name, url }: { name: string; url: string }) => {
-    setCompanies(prev => [...prev, { id: nextCompanyId.current++, name: name.toUpperCase(), url }]);
+  const handleAddCompany = ({ name, url, domain }: { name: string; url?: string; domain?: string }) => {
+    addCompany({ name, url, domain });
     setShowAddModal(false);
     toast(`${name} added to your watch list`);
+  };
+
+  const handleSaveLink = (url: string) => {
+    if (!editingCompany) return;
+    updateCompanyUrl(editingCompany.id, url);
+    setEditingCompany(null);
   };
 
   return (
@@ -561,8 +685,9 @@ export default function JobWatchList() {
             <CompanyCard
               key={c.id}
               name={c.name}
-              url={c.url}
-              onRemove={() => setCompanies(prev => prev.filter(x => x.id !== c.id))}
+              domain={c.domain}
+              onRemove={() => removeCompany(c.id)}
+              onEditLink={() => setEditingCompany(c)}
             />
           ))}
           </div>{/* end company grid */}
@@ -584,13 +709,13 @@ export default function JobWatchList() {
                 <TagChip
                   key={tag}
                   label={tag}
-                  onRemove={() => setMustTags(prev => prev.filter(t => t !== tag))}
+                  onRemove={() => removeMustTag(tag)}
                 />
               ))}
               <TagChipInput
                 tags={mustTags}
                 suggestions={MUST_SUGGESTIONS}
-                onAdd={tag => setMustTags(prev => [...prev, tag])}
+                onAdd={addMustTag}
               />
             </div>
           </div>
@@ -605,13 +730,13 @@ export default function JobWatchList() {
                 <TagChip
                   key={tag}
                   label={tag}
-                  onRemove={() => setRelevantTags(prev => prev.filter(t => t !== tag))}
+                  onRemove={() => removeRelevantTag(tag)}
                 />
               ))}
               <TagChipInput
                 tags={relevantTags}
                 suggestions={RELEVANT_SUGGESTIONS}
-                onAdd={tag => setRelevantTags(prev => [...prev, tag])}
+                onAdd={addRelevantTag}
               />
             </div>
           </div>
@@ -621,6 +746,9 @@ export default function JobWatchList() {
 
       {showAddModal && (
         <AddCompanyModal onClose={() => setShowAddModal(false)} onAdd={handleAddCompany} />
+      )}
+      {editingCompany && (
+        <EditLinkModal company={editingCompany} onClose={() => setEditingCompany(null)} onSave={handleSaveLink} />
       )}
     </div>
   );

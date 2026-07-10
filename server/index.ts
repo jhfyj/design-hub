@@ -5,6 +5,7 @@ import { fileURLToPath } from "url";
 import { getFeedArticles } from "./tldrFeed";
 import { getInspoItems } from "./designInspoFeed";
 import { getLiveJobs } from "./jobsFeed";
+import { searchCompanies } from "./companySearch";
 
 // Load .env if present (e.g. ANTHROPIC_API_KEY) — fine if it's missing,
 // article selection just stays unconfigured (server/tldrFeed.ts errors clearly).
@@ -63,6 +64,18 @@ async function startServer() {
       res.json(result);
     } catch (err) {
       res.status(502).json({ error: err instanceof Error ? err.message : "Job feed fetch failed" });
+    }
+  });
+
+  // Company name/logo autocomplete for the Job Watch List's Add Company
+  // modal (server/companySearch.ts) — backs a real, essentially unbounded
+  // company lookup instead of a hardcoded suggestion list.
+  app.get("/api/company-search", async (req, res) => {
+    try {
+      const results = await searchCompanies(String(req.query.q || ""));
+      res.json(results);
+    } catch (err) {
+      res.status(502).json({ error: err instanceof Error ? err.message : "Company search failed" });
     }
   });
 
