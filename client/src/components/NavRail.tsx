@@ -8,13 +8,18 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
+import { motion } from "framer-motion";
 import {
   Notification, Home, Folder, Bookmark, Settings, Add,
 } from "@carbon/icons-react";
+import { EASE_OUT, T_NAVRAIL } from "@/lib/pageLoadTiming";
 
 interface NavRailProps {
   mode?: "home" | "canvas";
   activeProject?: number;
+  // Only Home passes this — true for the entrance animation on an actual
+  // page load, omitted (no animation) on every other route/mount.
+  playIntro?: boolean;
 }
 
 const NAV_ITEMS = [
@@ -118,7 +123,7 @@ function NavItem({
   );
 }
 
-export default function NavRail({ mode = "home", activeProject }: NavRailProps) {
+export default function NavRail({ mode = "home", activeProject, playIntro = false }: NavRailProps) {
   const [location, navigate] = useLocation();
   const [expanded, setExpanded] = useState(false);
 
@@ -135,14 +140,16 @@ export default function NavRail({ mode = "home", activeProject }: NavRailProps) 
   const pillRadius = 16;
 
   return (
-    <nav
+    <motion.nav
       onMouseEnter={() => setExpanded(true)}
       onMouseLeave={() => setExpanded(false)}
+      initial={playIntro ? { x: -40, y: "-50%", opacity: 0, scale: 0.92 } : false}
+      animate={{ x: 0, y: "-50%", opacity: 1, scale: 1 }}
+      transition={{ duration: 0.45, ease: EASE_OUT, delay: T_NAVRAIL }}
       style={{
         position: "fixed",
         left: 24,
         top: "50%",
-        transform: "translateY(-50%)",
         zIndex: 50,
         width: pillWidth,
         background: "#1A1A1A",
@@ -290,6 +297,6 @@ export default function NavRail({ mode = "home", activeProject }: NavRailProps) 
         expanded={expanded}
         onClick={() => toast("Settings coming soon")}
       />
-    </nav>
+    </motion.nav>
   );
 }

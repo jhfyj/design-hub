@@ -17,8 +17,7 @@ import { useRef, useState } from "react";
 import { AnimatePresence, motion, Reorder } from "framer-motion";
 import { ChevronDown, Add, Checkmark, Play, Pause } from "@carbon/icons-react";
 import { useTodoStore, liveRemainingSeconds, formatTimer, type TodoTask } from "@/lib/todoStore";
-
-const EASE_OUT: [number, number, number, number] = [0.4, 0, 0.2, 1];
+import { EASE_OUT, T_TODO, T_TODO_PLUS } from "@/lib/pageLoadTiming";
 
 function TaskRow({
   task, onToggle, onPlay, onPause, onBumpInterval, editingTime, timeDraft,
@@ -450,7 +449,7 @@ function TodoListPill({
   );
 }
 
-export default function TodoWidget() {
+export default function TodoWidget({ playIntro = false }: { playIntro?: boolean }) {
   const {
     lists, addList, renameList, deleteList, addTask, renameTask, toggleTask, startTimer, pauseTimer,
     setCustomMinutes, bumpByInterval, reorderTasks,
@@ -496,6 +495,15 @@ export default function TodoWidget() {
 
   return (
     <div style={{ position: "fixed", top: 24, right: 24, width: 260, zIndex: 40, display: "flex", flexDirection: "column", gap: 8 }}>
+      {/* Inner wrapper carries the entrance transform — kept off the outer
+          fixed container so the context-menu popup below (also position:fixed)
+          isn't reparented into a transformed containing block. */}
+      <motion.div
+        initial={playIntro ? { opacity: 0, scale: 0.85, y: -10 } : false}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: EASE_OUT, delay: T_TODO }}
+        style={{ display: "flex", flexDirection: "column", gap: 8, transformOrigin: "top right" }}
+      >
       <AnimatePresence initial={false}>
         {lists.map(list => (
           <motion.div
@@ -551,9 +559,12 @@ export default function TodoWidget() {
         ))}
       </AnimatePresence>
 
-      <button
+      <motion.button
         onClick={addList}
         title="New list"
+        initial={playIntro ? { opacity: 0, scale: 0.4 } : false}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ type: "spring", stiffness: 500, damping: 20, delay: T_TODO_PLUS }}
         style={{
           alignSelf: "center", width: 36, height: 36, borderRadius: "50%",
           background: "#2A2A2A", border: "1px solid rgba(255,255,255,0.08)",
@@ -565,7 +576,8 @@ export default function TodoWidget() {
         onMouseLeave={e => (e.currentTarget.style.background = "#2A2A2A")}
       >
         <Add size={16} />
-      </button>
+      </motion.button>
+      </motion.div>
 
       {contextMenu && (
         <>

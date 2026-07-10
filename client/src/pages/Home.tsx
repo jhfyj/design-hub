@@ -23,10 +23,12 @@ import { useInspoStore } from "@/lib/inspoStore";
 import { useJobWatchStore } from "@/lib/jobWatchStore";
 import { useJobStore, type LiveJob } from "@/lib/jobStore";
 import { companyLogoUrl } from "@/lib/companyLogo";
+import {
+  EASE_OUT, T_GREETING, T_TITLE, T_SUBTITLE, T_HERO_CARDS, HERO_CARD_STAGGER,
+  T_SEARCH_BAR, T_SECTIONS, SECTION_STAGGER, consumeIntroPlay,
+} from "@/lib/pageLoadTiming";
 
-// Enter/exit + layout-reflow curve — matches the removal animation these
-// cards already used, see .claude/skills/motion/SKILL.md.
-const EASE_OUT: [number, number, number, number] = [0.4, 0, 0.2, 1];
+const GREETING_TEXT = "Welcome back, Jen";
 
 // Custom cursor for empty hero-canvas space — a lime plus inviting a click
 // to spawn a recommendation card. #E1FF00 must stay in sync with --dh-accent
@@ -203,10 +205,11 @@ const RECOMMENDATION_POOL: Pick<HeroCard, "text" | "sub" | "url">[] = [
   },
 ];
 
-function DraggableHeroCard({ card, spawned, onDismiss }: {
+function DraggableHeroCard({ card, spawned, onDismiss, loadDelay }: {
   card: HeroCard;
   spawned?: boolean;
   onDismiss?: (id: number) => void;
+  loadDelay?: number; // stagger-in delay for the initial (non-spawned) hero cards on page load
 }) {
   const [drag, setDrag] = useState({ x: card.offsetX, y: card.offsetY });
   const dragging = useRef(false);
@@ -260,10 +263,10 @@ function DraggableHeroCard({ card, spawned, onDismiss }: {
         onClick={handleClick}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
-        initial={spawned ? { opacity: 0, scale: 0.5 } : false}
+        initial={spawned || loadDelay !== undefined ? { opacity: 0, scale: 0.5 } : false}
         animate={{ opacity: 1, scale: 1 }}
         exit={spawned ? { opacity: 0, scale: 0.55 } : undefined}
-        transition={{ duration: 0.28, ease: EASE_OUT }}
+        transition={{ duration: 0.3, ease: EASE_OUT, delay: spawned ? 0 : loadDelay ?? 0 }}
         style={{
           position: "relative",
           background: "var(--dh-surface)",
@@ -591,10 +594,13 @@ function TldrCard({ card, onMarkRead }: {
 }
 
 // ── Section Board ─────────────────────────────────────────────────────────────
-function SectionBoard({ children }: { children: React.ReactNode }) {
+function SectionBoard({ children, loadDelay }: { children: React.ReactNode; loadDelay?: number }) {
   return (
-    <div
+    <motion.div
       className="canvas-grid"
+      initial={loadDelay !== undefined ? { opacity: 0, y: 20, scale: 0.98 } : false}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ duration: 0.35, ease: EASE_OUT, delay: loadDelay ?? 0 }}
       style={{
         borderRadius: 16,
         padding: "22px",
@@ -604,7 +610,7 @@ function SectionBoard({ children }: { children: React.ReactNode }) {
       }}
     >
       {children}
-    </div>
+    </motion.div>
   );
 }
 
@@ -667,6 +673,9 @@ function SectionHeader({
 // ── Main component ───────────────────────────────────────────────────────────
 export default function Home() {
   const [, navigate] = useLocation();
+  // Consumed once per Home mount — true only on an actual page load, false
+  // when the user navigates back to Home from elsewhere in the app.
+  const [playIntro] = useState(consumeIntroPlay);
   const [time, setTime] = useState("");
   const [tldrExpanded, setTldrExpanded] = useState(false);
   const { unread: tldrUnread, markAsRead: markTldrRead, refreshFeed: refreshTldrFeed, feedLoading: tldrLoading } = useTldrStore();
@@ -696,6 +705,10 @@ export default function Home() {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Search pill clips to "hidden" only while it's expanding from the send
+  // button to full width on page load — switched to "visible" once settled
+  // so the resting-state box-shadow isn't permanently clipped.
+  const [searchBarSettled, setSearchBarSettled] = useState(!playIntro);
 
   useEffect(() => {
     const update = () => {
@@ -806,8 +819,8 @@ export default function Home() {
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: "var(--dh-bg)" }}>
-      <NavRail mode="home" />
-      <TodoWidget />
+      <NavRail mode="home" playIntro={playIntro} />
+      <TodoWidget playIntro={playIntro} />
 
       {/* Main content — reserves a gutter for NavRail */}
       <div style={{ marginLeft: 72, flex: 1, overflowY: "auto", overflowX: "hidden" }}>
@@ -828,9 +841,9 @@ export default function Home() {
             cursor: PLUS_CURSOR,
           }}
         >
-          {/* Draggable inspo cards — all 4, centered via transform */}
-          {HERO_CARDS.map(card => (
-            <DraggableHeroCard key={card.id} card={card} />
+          {/* Draggable inspo cards — all 4, centered via transform, pop in one after another on load */}
+          {HERO_CARDS.map((card, i) => (
+            <DraggableHeroCard key={card.id} card={card} loadDelay={playIntro ? T_HERO_CARDS + i * HERO_CARD_STAGGER : undefined} />
           ))}
 
           {/* Spawned recommendation cards — click empty canvas to add one */}
@@ -842,61 +855,98 @@ export default function Home() {
 
           {/* Center content */}
           <div style={{ position: "relative", zIndex: 3, textAlign: "center", maxWidth: 560, cursor: "default" }}>
-            <div style={{
-              fontFamily: "'Fira Mono', monospace",
-              fontSize: 12,
-              color: "var(--dh-text-muted)",
-              marginBottom: 14,
-              letterSpacing: "0.05em",
-            }}>
-              {time} | Santa Monica
-            </div>
-
-            {/* Single-line title — font size scales down to fit */}
-            <h1 style={{
-              fontFamily: "'Figtree', sans-serif",
-              fontSize: "clamp(36px, 5.5vw, 72px)",
-              fontWeight: 400,
-              color: "var(--dh-text-primary)",
-              lineHeight: 1.05,
-              margin: "0 0 10px",
-              whiteSpace: "nowrap",
-            }}>
-              Welcome back, Jen
-            </h1>
-
-            <p style={{
-              fontSize: 16,
-              color: "var(--dh-text-muted)",
-              marginBottom: 28,
-              fontWeight: 400,
-            }}>
-              What are we working on today?
-            </p>
-
-            {/* Agent search with autocomplete — z-index 9999 */}
-            <div style={{ position: "relative", width: "100%", maxWidth: 500, margin: "0 auto", zIndex: 9999 }}>
-              <div style={{
-                display: "flex",
-                alignItems: "center",
-                background: "var(--dh-surface)",
-                borderRadius: showSuggestions ? "12px 12px 0 0" : 999,
-                padding: "10px 14px 10px 20px",
-                gap: 10,
-                transition: "border-radius 150ms",
-                position: "relative",
-                zIndex: 9999,
-                boxShadow: "0 8px 28px rgba(0,0,0,0.45)",
+            <motion.div
+              initial={playIntro ? { opacity: 0 } : false}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.2, ease: EASE_OUT, delay: T_GREETING }}
+              style={{
+                fontFamily: "'Fira Mono', monospace",
+                fontSize: 12,
+                color: "var(--dh-text-muted)",
+                marginBottom: 14,
+                letterSpacing: "0.05em",
               }}>
-                <input
+              {time} | Santa Monica
+            </motion.div>
+
+            {/* Single-line title — font size scales down to fit, types in char-by-char */}
+            <motion.h1
+              initial={playIntro ? "hidden" : false}
+              animate="visible"
+              variants={{ visible: { transition: { staggerChildren: 0.03, delayChildren: T_TITLE } } }}
+              style={{
+                fontFamily: "'Figtree', sans-serif",
+                fontSize: "clamp(36px, 5.5vw, 72px)",
+                fontWeight: 400,
+                color: "var(--dh-text-primary)",
+                lineHeight: 1.05,
+                margin: "0 0 10px",
+                whiteSpace: "nowrap",
+              }}>
+              {GREETING_TEXT.split("").map((char, i) => (
+                <motion.span
+                  key={i}
+                  variants={{ hidden: { opacity: 0, y: 6 }, visible: { opacity: 1, y: 0 } }}
+                  transition={{ duration: 0.16, ease: EASE_OUT }}
+                  style={{ display: "inline-block" }}
+                >
+                  {char === " " ? " " : char}
+                </motion.span>
+              ))}
+            </motion.h1>
+
+            <motion.p
+              initial={playIntro ? { opacity: 0, y: 4 } : false}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25, ease: EASE_OUT, delay: T_SUBTITLE }}
+              style={{
+                fontSize: 16,
+                color: "var(--dh-text-muted)",
+                marginBottom: 28,
+                fontWeight: 400,
+              }}>
+              What are we working on today?
+            </motion.p>
+
+            {/* Agent search with autocomplete — z-index 9999. Starts as just the
+                send button, then expands into the full-length pill on load. */}
+            <div style={{ position: "relative", width: "100%", maxWidth: 420, margin: "0 auto", zIndex: 9999 }}>
+              <motion.div
+                initial={playIntro ? { opacity: 0, width: 76 } : false}
+                animate={{ opacity: 1, width: "100%" }}
+                transition={{
+                  // Fade in fully at the compact size first, then expand —
+                  // not both at once.
+                  opacity: { duration: 0.15, ease: EASE_OUT, delay: T_SEARCH_BAR },
+                  width: { duration: 0.22, ease: EASE_OUT, delay: T_SEARCH_BAR + 0.15 },
+                }}
+                onAnimationComplete={() => setSearchBarSettled(true)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  background: "var(--dh-surface)",
+                  borderRadius: showSuggestions ? "12px 12px 0 0" : 999,
+                  padding: "10px 14px 10px 20px",
+                  gap: 10,
+                  transition: "border-radius 150ms",
+                  position: "relative",
+                  zIndex: 9999,
+                  boxShadow: "0 8px 28px rgba(0,0,0,0.45)",
+                  overflow: searchBarSettled ? "visible" : "hidden",
+                }}>
+                <motion.input
                   ref={inputRef}
                   placeholder="Ask your agent anything..."
                   value={query}
                   onChange={e => handleQueryChange(e.target.value)}
                   onFocus={() => query.length >= 2 && setShowSuggestions(true)}
                   onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+                  initial={playIntro ? { opacity: 0 } : false}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.15, ease: EASE_OUT, delay: T_SEARCH_BAR + 0.32 }}
                   style={{
                     flex: 1,
+                    minWidth: 0,
                     background: "transparent",
                     border: "none",
                     outline: "none",
@@ -919,7 +969,7 @@ export default function Home() {
                 >
                   <SendFilled size={13} color="#1A1A1A" />
                 </button>
-              </div>
+              </motion.div>
 
               {/* Suggestions dropdown — positioned absolutely, z-index above everything */}
               {showSuggestions && suggestions.length > 0 && (
@@ -975,7 +1025,7 @@ export default function Home() {
         <div style={{ padding: "28px 40px 80px 40px", maxWidth: 1100, margin: "0 auto", display: "flex", flexDirection: "column", gap: 40 }}>
 
           {/* Job Board */}
-          <SectionBoard>
+          <SectionBoard loadDelay={playIntro ? T_SECTIONS : undefined}>
             <SectionHeader
               icon={Portfolio}
               label="Job Board"
@@ -1064,7 +1114,7 @@ export default function Home() {
           </SectionBoard>
 
           {/* TLDR */}
-          <SectionBoard>
+          <SectionBoard loadDelay={playIntro ? T_SECTIONS + SECTION_STAGGER : undefined}>
             <SectionHeader
               icon={Blog}
               label="TLDR"
@@ -1105,7 +1155,7 @@ export default function Home() {
           </SectionBoard>
 
           {/* Design Inspos */}
-          <SectionBoard>
+          <SectionBoard loadDelay={playIntro ? T_SECTIONS + 2 * SECTION_STAGGER : undefined}>
             <SectionHeader
               icon={Idea}
               label="Design Inspos"
