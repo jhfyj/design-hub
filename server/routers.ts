@@ -92,13 +92,7 @@ export const appRouter = router({
      *  5. Otherwise run full filter+recommend pipeline, update DB cache
      */
     refresh: publicProcedure
-      .input(
-        z.object({
-          companies: z.array(z.string()),
-          mustTags: z.array(z.string()),
-          relevantTags: z.array(z.string()),
-        }),
-      )
+      .input(WatchListSchema)
       .mutation(async ({ input }) => {
         const { companies, mustTags, relevantTags } = input;
 
@@ -106,7 +100,8 @@ export const appRouter = router({
           return { jobs: [], recommended: [], fromCache: false } as const;
         }
 
-        const qHash = jobQueryHash(companies, mustTags, relevantTags);
+        const companyNames = companies.map(c => c.name);
+        const qHash = jobQueryHash(companyNames, mustTags, relevantTags);
         const cached = await getJobCache(qHash);
 
         // Fetch raw postings to compute the payload hash for change detection.
@@ -114,7 +109,11 @@ export const appRouter = router({
         // this is fast on repeated refreshes within a session.
         let result: CachedJobResult;
         try {
-          const fresh = await getLiveJobs(companies, mustTags, relevantTags);
+          const fresh = await getLiveJobs(
+            companies.map(c => ({ name: c.name, domain: c.domain, url: c.url })),
+            mustTags,
+            relevantTags,
+          );
           const payloadHash = sha256(JSON.stringify(fresh));
 
           if (cached && cached.payloadHash === payloadHash) {

@@ -49,4 +49,13 @@
 ## GitHub
 
 - [x] Pull latest changes from GitHub before starting work
-- [ ] Commit and push all changes to GitHub
+- [x] Commit and push all changes to GitHub
+
+## Job Board — Expanded ATS Coverage + Custom Careers Pages
+
+- [x] Add Lever ATS support (fetchLeverJobs via api.lever.co/v0/postings/{slug}?mode=json)
+- [x] Add agent-driven careers URL discovery: when all ATS attempts fail, Claude resolves the real careers URL from the company domain (tries common paths, then falls back to a search-style prompt)
+- [x] Cache discovered careers URLs per domain so the agent only runs once per company
+- [x] Add HTML scrape fallback: fetch the discovered careers URL, extract job title+link pairs with DOM parsing
+- [x] Update KNOWN_ATS: add Lever entries for companies known to use it (e.g. Discord)
+- [x] Extend fetchCompanyJobsUncached to try Lever before HTML scrape

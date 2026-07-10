@@ -1,4 +1,5 @@
 import path from "node:path";
+import { parse as parseHtml } from "node-html-parser";
 import { CACHE_DIR, decodeEntities, hashId, loadJson, saveJson, stripTags } from "./htmlUtils";
 
 // Per-company raw postings, keyed by company name — short-lived, just to
@@ -11,9 +12,14 @@ const MUST_MATCH_CACHE_FILE = path.join(CACHE_DIR, "jobs-must-match.json");
 // The LLM's "which of these are the standout picks" output for the
 // Agent Recommended row, keyed by a hash of the filtered candidate set + tags.
 const RECOMMENDED_CACHE_FILE = path.join(CACHE_DIR, "jobs-recommended.json");
+// Agent-discovered careers URLs, keyed by domain — long-lived since these
+// rarely change. Avoids re-running the discovery agent on every refresh.
+const CAREERS_URL_CACHE_FILE = path.join(CACHE_DIR, "careers-urls.json");
+const CAREERS_URL_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 1 week
 
 const GREENHOUSE_BOARD_URL = (slug: string) => `https://boards-api.greenhouse.io/v1/boards/${slug}/jobs`;
 const ASHBY_BOARD_URL = (slug: string) => `https://api.ashbyhq.com/posting-api/job-board/${slug}`;
+const LEVER_BOARD_URL = (slug: string) => `https://api.lever.co/v0/postings/${slug}?mode=json`;
 const MAX_RECOMMENDED = 4;
 // How much of each posting's description the must-include classifier sees —
 // long enough to judge genuine relevance, short enough to keep the prompt
@@ -49,24 +55,53 @@ function inferWorkplaceType(locationText: string): WorkplaceType {
   return "In-person";
 }
 
-// Verified against each company's real public job board (Greenhouse or
-// Ashby) — company display names don't reliably map to their ATS slug
-// (e.g. spaces, rebrands), so known ones are pinned explicitly. Anything
-// not listed here falls back to guessing the lowercased, space-stripped
-// name against both APIs in fetchCompanyJobs.
-const KNOWN_ATS: Record<string, { ats: "greenhouse" | "ashby"; slug: string }> = {
+// Verified against each company's real public job board — company display
+// names don't reliably map to their ATS slug (e.g. spaces, rebrands), so
+// known ones are pinned explicitly. Anything not listed here falls back to
+// guessing the lowercased, space-stripped name against all three APIs, then
+// agent-driven URL discovery + HTML scrape.
+const KNOWN_ATS: Record<string, { ats: "greenhouse" | "ashby" | "lever"; slug: string }> = {
   figma: { ats: "greenhouse", slug: "figma" },
   stripe: { ats: "greenhouse", slug: "stripe" },
   vercel: { ats: "greenhouse", slug: "vercel" },
   airbnb: { ats: "greenhouse", slug: "airbnb" },
   duolingo: { ats: "greenhouse", slug: "duolingo" },
   pinterest: { ats: "greenhouse", slug: "pinterest" },
-  discord: { ats: "greenhouse", slug: "discord" },
+  discord: { ats: "lever", slug: "discord" },
   anthropic: { ats: "greenhouse", slug: "anthropic" },
   notion: { ats: "ashby", slug: "notion" },
   linear: { ats: "ashby", slug: "linear" },
   miro: { ats: "ashby", slug: "miro" },
+  // Additional Lever companies
+  netflix: { ats: "lever", slug: "netflix" },
+  twitter: { ats: "lever", slug: "twitter" },
+  x: { ats: "lever", slug: "twitter" },
+  coinbase: { ats: "lever", slug: "coinbase" },
+  plaid: { ats: "lever", slug: "plaid" },
+  brex: { ats: "lever", slug: "brex" },
+  ramp: { ats: "lever", slug: "ramp" },
+  mercury: { ats: "lever", slug: "mercury" },
+  retool: { ats: "lever", slug: "retool" },
+  airtable: { ats: "lever", slug: "airtable" },
+  intercom: { ats: "lever", slug: "intercom" },
+  // Additional Greenhouse companies
+  lyft: { ats: "greenhouse", slug: "lyft" },
+  dropbox: { ats: "greenhouse", slug: "dropbox" },
+  hubspot: { ats: "greenhouse", slug: "hubspot" },
+  canva: { ats: "greenhouse", slug: "canva" },
+  asana: { ats: "greenhouse", slug: "asana" },
+  zendesk: { ats: "greenhouse", slug: "zendesk" },
+  shopify: { ats: "greenhouse", slug: "shopify" },
+  atlassian: { ats: "greenhouse", slug: "atlassian" },
+  // Additional Ashby companies
+  loom: { ats: "ashby", slug: "loom" },
+  pitch: { ats: "ashby", slug: "pitch" },
+  superhuman: { ats: "ashby", slug: "superhuman" },
+  coda: { ats: "ashby", slug: "coda" },
+  craft: { ats: "ashby", slug: "craft" },
 };
+
+// ── ATS fetchers ──────────────────────────────────────────────────────────────
 
 interface GreenhouseJob {
   id: number;
@@ -84,8 +119,6 @@ async function fetchGreenhouseJobs(slug: string, company: string): Promise<RawJo
   const resp = await fetch(`${GREENHOUSE_BOARD_URL(slug)}?content=true`);
   if (!resp.ok) throw new Error(`Greenhouse board "${slug}" fetch failed (${resp.status})`);
   const data = await resp.json() as { jobs?: GreenhouseJob[] };
-  // Greenhouse's board-level endpoint doesn't expose a separate "first
-  // published" date — updated_at is the closest available signal.
   return (data.jobs ?? []).map(j => ({
     id: hashId(j.absolute_url),
     company,
@@ -134,49 +167,329 @@ async function fetchAshbyJobs(slug: string, company: string): Promise<RawJobPost
     });
 }
 
-// Tries Greenhouse then Ashby for a company's public job board. A pinned
-// slug in KNOWN_ATS is tried first; otherwise this guesses the lowercased,
-// space-stripped company name against both APIs. Never throws — a company
-// with no board on either platform (or a guessed slug that doesn't match)
-// just silently contributes zero postings, same as designInspoFeed.ts's
-// per-source failure handling.
-async function fetchCompanyJobsUncached(companyName: string): Promise<RawJobPosting[]> {
+interface LeverJob {
+  id: string;
+  text: string;
+  hostedUrl: string;
+  createdAt: number;
+  categories?: {
+    location?: string;
+    commitment?: string;
+    workplaceType?: string;
+  };
+  descriptionPlain?: string;
+  additional?: string;
+}
+
+async function fetchLeverJobs(slug: string, company: string): Promise<RawJobPosting[]> {
+  const resp = await fetch(LEVER_BOARD_URL(slug));
+  if (!resp.ok) throw new Error(`Lever board "${slug}" fetch failed (${resp.status})`);
+  const data = await resp.json() as LeverJob[];
+  if (!Array.isArray(data)) throw new Error(`Lever board "${slug}" returned unexpected shape`);
+  return data.map(j => {
+    const location = j.categories?.location ?? "";
+    const workplaceType: WorkplaceType =
+      j.categories?.workplaceType === "Remote" || j.categories?.workplaceType === "Hybrid"
+        ? (j.categories.workplaceType as WorkplaceType)
+        : inferWorkplaceType(location);
+    const description = [j.descriptionPlain ?? "", j.additional ?? ""].join(" ").trim();
+    return {
+      id: hashId(j.hostedUrl),
+      company,
+      role: j.text,
+      postedAt: j.createdAt || Date.now(),
+      url: j.hostedUrl,
+      workplaceType,
+      description,
+    };
+  });
+}
+
+// ── Agent-driven careers URL discovery ───────────────────────────────────────
+// When all three ATS APIs fail, we ask Claude to figure out where the company
+// posts jobs. It tries a ranked list of common patterns (careers.{domain},
+// {domain}/careers, jobs.{domain}, {domain}/jobs) and returns the most likely
+// URL. We cache the result per domain for a week so the agent only runs once.
+
+// Common careers URL patterns to probe before asking Claude — fast, free,
+// and covers the majority of cases (e.g. discord.com/jobs, netflix.jobs).
+const CAREERS_PATH_PATTERNS = [
+  (domain: string) => `https://${domain}/careers`,
+  (domain: string) => `https://${domain}/jobs`,
+  (domain: string) => `https://careers.${domain}`,
+  (domain: string) => `https://jobs.${domain}`,
+  (domain: string) => `https://www.${domain}/careers`,
+  (domain: string) => `https://www.${domain}/jobs`,
+];
+
+async function probeUrl(url: string): Promise<boolean> {
+  try {
+    const resp = await fetch(url, {
+      method: "HEAD",
+      redirect: "follow",
+      signal: AbortSignal.timeout(5000),
+    });
+    return resp.ok;
+  } catch {
+    return false;
+  }
+}
+
+// Ask Claude to reason about where this company posts jobs, given its domain.
+// Returns a URL string or null if Claude can't determine one.
+async function askClaudeForCareersUrl(companyName: string, domain: string): Promise<string | null> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return null;
+
+  const prompt = `You are helping find where a company posts its job openings.
+
+Company: ${companyName}
+Domain: ${domain}
+
+The standard ATS platforms (Greenhouse, Ashby, Lever) returned no results for this company. They may use a different ATS (Workday, Rippling, Jobvite, SmartRecruiters, BambooHR, etc.) or post directly on their own website.
+
+Based on your knowledge of this company, what is the most likely URL where they post jobs?
+
+Respond with ONLY the full URL (including https://), nothing else. If you genuinely don't know, respond with the word null.
+
+Examples of valid responses:
+https://discord.com/jobs
+https://careers.shopify.com
+https://jobs.netflix.com
+null`;
+
+  try {
+    const resp = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 100,
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json() as { content?: { type: string; text?: string }[] };
+    const text = data.content?.find(b => b.type === "text")?.text?.trim() ?? null;
+    if (!text || text === "null" || !text.startsWith("http")) return null;
+    return text;
+  } catch {
+    return null;
+  }
+}
+
+// Discover the careers URL for a company. Strategy:
+// 1. Check the local cache (1-week TTL) — avoids re-running on every refresh.
+// 2. Probe common URL patterns with HEAD requests (free, fast).
+// 3. If nothing responds, ask Claude (one cheap Haiku call, result cached).
+async function discoverCareersUrl(companyName: string, domain: string | undefined): Promise<string | null> {
+  if (!domain) return null;
+
+  const cache = loadJson<Record<string, { url: string | null; discoveredAt: number }>>(CAREERS_URL_CACHE_FILE, {});
+  const cached = cache[domain];
+  if (cached && Date.now() - cached.discoveredAt < CAREERS_URL_CACHE_TTL) {
+    return cached.url;
+  }
+
+  // Step 1: probe common patterns
+  for (const pattern of CAREERS_PATH_PATTERNS) {
+    const url = pattern(domain);
+    if (await probeUrl(url)) {
+      cache[domain] = { url, discoveredAt: Date.now() };
+      saveJson(CAREERS_URL_CACHE_FILE, cache);
+      return url;
+    }
+  }
+
+  // Step 2: ask Claude
+  const claudeUrl = await askClaudeForCareersUrl(companyName, domain);
+  cache[domain] = { url: claudeUrl, discoveredAt: Date.now() };
+  saveJson(CAREERS_URL_CACHE_FILE, cache);
+  return claudeUrl;
+}
+
+// ── HTML scrape fallback ──────────────────────────────────────────────────────
+// Fetches the careers page HTML and extracts job title + URL pairs. This is
+// intentionally simple: we look for <a> elements whose text looks like a job
+// title (2–10 words, no nav/footer noise) and whose href points to a job
+// detail page (contains /jobs/, /careers/, /positions/, /openings/, or
+// a job ID pattern). No headless browser — just a plain fetch + regex parse.
+
+const JOB_LINK_PATTERNS = [
+  /\/jobs?\//i,
+  /\/careers?\//i,
+  /\/positions?\//i,
+  /\/openings?\//i,
+  /\/roles?\//i,
+  /\/apply\//i,
+  // Workday-style: /wd5/robot/... or /wday/cxs/...
+  /\/wd\d*\//i,
+  /\/wday\//i,
+  // Lever-hosted links (for companies that use Lever but under a custom domain)
+  /jobs\.lever\.co/i,
+  // Greenhouse-hosted links
+  /boards\.greenhouse\.io/i,
+  // Ashby-hosted links
+  /jobs\.ashbyhq\.com/i,
+];
+
+function looksLikeJobLink(href: string): boolean {
+  return JOB_LINK_PATTERNS.some(p => p.test(href));
+}
+
+function looksLikeJobTitle(text: string): boolean {
+  const words = text.trim().split(/\s+/);
+  if (words.length < 2 || words.length > 12) return false;
+  // Reject obvious nav items
+  const lower = text.toLowerCase();
+  const navWords = ["home", "about", "contact", "login", "sign in", "sign up", "blog", "press", "privacy", "terms", "cookie"];
+  if (navWords.some(w => lower === w)) return false;
+  return true;
+}
+
+async function scrapeJobsFromUrl(careersUrl: string, company: string): Promise<RawJobPosting[]> {
+  let html: string;
+  let baseUrl: URL;
+  try {
+    const resp = await fetch(careersUrl, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; DesignHubBot/1.0)" },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!resp.ok) return [];
+    html = await resp.text();
+    baseUrl = new URL(careersUrl);
+  } catch {
+    return [];
+  }
+
+  // Parse with a real HTML DOM parser — handles malformed HTML, nested tags,
+  // and attribute quoting variations that regex can't reliably handle.
+  const root = parseHtml(html, { lowerCaseTagName: true, comment: false, blockTextElements: { script: false, style: false } });
+
+  const jobs: RawJobPosting[] = [];
+  const seen = new Set<string>();
+
+  for (const anchor of root.querySelectorAll("a[href]")) {
+    const rawHref = anchor.getAttribute("href") ?? "";
+    // Get the visible text of the link, stripping any nested HTML tags
+    const rawText = decodeEntities(anchor.innerText ?? anchor.text ?? "").replace(/\s+/g, " ").trim();
+
+    if (!rawHref || !rawText) continue;
+    if (!looksLikeJobLink(rawHref)) continue;
+    if (!looksLikeJobTitle(rawText)) continue;
+
+    // Resolve relative, protocol-relative, and absolute URLs
+    let href: string;
+    try {
+      href = new URL(rawHref, baseUrl).href;
+    } catch {
+      continue;
+    }
+
+    if (seen.has(href)) continue;
+    seen.add(href);
+
+    // Try to extract a location hint from a sibling/parent element
+    // (many career pages show "Remote" or "New York" next to the job title)
+    const parentText = anchor.parentNode?.innerText ?? "";
+    const workplaceType = inferWorkplaceType(parentText);
+
+    jobs.push({
+      id: hashId(href),
+      company,
+      role: rawText,
+      postedAt: Date.now(), // no structured date available from raw HTML
+      url: href,
+      workplaceType,
+      description: "",
+    });
+  }
+
+  return jobs;
+}
+
+// ── Main fetch orchestration ──────────────────────────────────────────────────
+// Tries ATS APIs in order (Greenhouse → Ashby → Lever), then falls back to
+// agent-driven URL discovery + HTML scrape for companies that post directly
+// on their own site. Never throws — a company that can't be fetched by any
+// method silently contributes zero postings.
+
+async function fetchCompanyJobsUncached(
+  companyName: string,
+  domain?: string,
+  watchListUrl?: string,
+): Promise<RawJobPosting[]> {
   const key = companyName.toLowerCase().trim();
   const guessedSlug = key.replace(/\s+/g, "");
   const known = KNOWN_ATS[key];
 
-  const attempts: (() => Promise<RawJobPosting[]>)[] = known
-    ? [
-        () => (known.ats === "greenhouse" ? fetchGreenhouseJobs(known.slug, companyName) : fetchAshbyJobs(known.slug, companyName)),
-      ]
-    : [
-        () => fetchGreenhouseJobs(guessedSlug, companyName),
-        () => fetchAshbyJobs(guessedSlug, companyName),
-      ];
+  // Phase 1: known ATS — single targeted attempt, no guessing
+  if (known) {
+    try {
+      const jobs =
+        known.ats === "greenhouse" ? await fetchGreenhouseJobs(known.slug, companyName)
+        : known.ats === "ashby"    ? await fetchAshbyJobs(known.slug, companyName)
+        :                            await fetchLeverJobs(known.slug, companyName);
+      if (jobs.length > 0) return jobs;
+    } catch {
+      // fall through to guessing
+    }
+  }
 
-  for (const attempt of attempts) {
+  // Phase 2: guess the slug against all three ATS APIs
+  const guessAttempts: (() => Promise<RawJobPosting[]>)[] = [
+    () => fetchGreenhouseJobs(guessedSlug, companyName),
+    () => fetchAshbyJobs(guessedSlug, companyName),
+    () => fetchLeverJobs(guessedSlug, companyName),
+  ];
+
+  for (const attempt of guessAttempts) {
     try {
       const jobs = await attempt();
       if (jobs.length > 0) return jobs;
     } catch {
-      // try the next ATS, or give up quietly if this was the last one
+      // try the next one
     }
   }
-  return [];
+
+  // Phase 3: agent-driven URL discovery + HTML scrape
+  // Use the watch-list URL if the user pinned one, otherwise discover it.
+  const effectiveDomain = domain ?? (watchListUrl ? (() => {
+    try { return new URL(watchListUrl).hostname.replace(/^www\./, ""); } catch { return undefined; }
+  })() : undefined);
+
+  const careersUrl = watchListUrl ?? await discoverCareersUrl(companyName, effectiveDomain);
+  if (!careersUrl) return [];
+
+  try {
+    return await scrapeJobsFromUrl(careersUrl, companyName);
+  } catch {
+    return [];
+  }
 }
 
-async function fetchCompanyJobs(companyName: string): Promise<RawJobPosting[]> {
+async function fetchCompanyJobs(
+  companyName: string,
+  domain?: string,
+  watchListUrl?: string,
+): Promise<RawJobPosting[]> {
   const cache = loadJson<Record<string, { fetchedAt: number; jobs: RawJobPosting[] }>>(COMPANY_CACHE_FILE, {});
   const cached = cache[companyName];
   if (cached && Date.now() - cached.fetchedAt < COMPANY_CACHE_TTL) {
     return cached.jobs;
   }
 
-  const jobs = await fetchCompanyJobsUncached(companyName);
+  const jobs = await fetchCompanyJobsUncached(companyName, domain, watchListUrl);
   cache[companyName] = { fetchedAt: Date.now(), jobs };
   saveJson(COMPANY_CACHE_FILE, cache);
   return jobs;
 }
+
+// ── Keyword matching ──────────────────────────────────────────────────────────
 
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -191,14 +504,10 @@ function tagWords(tags: string[]): string[] {
 // false positives from boilerplate text that mentions "design" or "intern"
 // in passing (e.g. "collaborate with design and engineering", "if you are
 // an intern do not apply"). This is the coarse gate before Claude.
-// Falls back to checking the description too when no title match is found
-// at all — prevents a completely empty candidate set for unusual tag combos.
 function mentionsAnyMustWord(posting: RawJobPosting, tags: string[]): boolean {
   const words = tagWords(tags);
   if (words.length === 0) return true;
-  // Primary: title-only match (strict)
-  const titleMatch = words.some(word => new RegExp(`\\b${escapeRegex(word)}\\b`, "i").test(posting.role));
-  return titleMatch;
+  return words.some(word => new RegExp(`\\b${escapeRegex(word)}\\b`, "i").test(posting.role));
 }
 
 // Fallback when there's no ANTHROPIC_API_KEY (or the call fails): at least
@@ -219,6 +528,8 @@ function matchesMustIncludeHeuristic(posting: RawJobPosting, tags: string[]): bo
 function candidateSetKey(ids: number[], tags: string[]): string {
   return `${tags.slice().sort().join("|")}::${ids.slice().sort((a, b) => a - b).join(",")}`;
 }
+
+// ── Claude helpers ────────────────────────────────────────────────────────────
 
 // Shared Anthropic Messages API call — returns the response's text block,
 // or null on any failure (missing key, network error, non-2xx, empty
@@ -258,6 +569,8 @@ function parseIdArray(raw: string | null): number[] | null {
     return null;
   }
 }
+
+// ── Filtering pipeline ────────────────────────────────────────────────────────
 
 // The real must-include filter: the tags describe ONE target role (e.g.
 // "design", "intern", "fall" → "Product Design Intern (Fall)"), not a
@@ -357,12 +670,22 @@ function stripDescription(p: RawJobPosting): JobPosting {
   return posting;
 }
 
+// ── Public API ────────────────────────────────────────────────────────────────
+
+export interface CompanyInput {
+  name: string;
+  domain?: string;
+  url?: string;
+}
+
 export async function getLiveJobs(
-  companies: string[],
+  companies: CompanyInput[],
   mustTags: string[],
   relevantTags: string[],
 ): Promise<{ jobs: JobPosting[]; recommended: JobPosting[] }> {
-  const results = await Promise.allSettled(companies.map(fetchCompanyJobs));
+  const results = await Promise.allSettled(
+    companies.map(c => fetchCompanyJobs(c.name, c.domain, c.url)),
+  );
   const allPostings = results.flatMap(r => (r.status === "fulfilled" ? r.value : []));
 
   const filtered = await filterByMustInclude(allPostings, mustTags);

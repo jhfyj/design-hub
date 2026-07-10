@@ -675,11 +675,10 @@ export default function Home() {
     reachedEnd: inspoReachedEnd, reshuffle: reshuffleInspo, loadMore: loadMoreInspo,
   } = useInspoStore();
   const { companies: watchedCompanies, mustTags, relevantTags } = useJobWatchStore();
-  const companyNames = watchedCompanies.map(c => c.name);
   const {
     jobs: liveJobs, recommendedJobs: liveRecommendedJobs,
     loading: jobsLoading, refresh: refreshJobs,
-  } = useJobStore(companyNames, mustTags, relevantTags);
+  } = useJobStore(watchedCompanies, mustTags, relevantTags);
   const [jobPage, setJobPage] = useState(0);
   // "Applied" is a session-local dismissal, not a persisted job-board
   // action — the live jobs themselves come from useJobStore, not local state.

@@ -57,10 +57,10 @@ async function startServer() {
   // vite.config.ts. Query params are comma-separated lists.
   app.get("/api/jobs", async (req, res) => {
     try {
-      const companies = String(req.query.companies || "").split(",").map(s => s.trim()).filter(Boolean);
+      const companyNames = String(req.query.companies || "").split(",").map(s => s.trim()).filter(Boolean);
       const must = String(req.query.must || "").split(",").map(s => s.trim()).filter(Boolean);
       const relevant = String(req.query.relevant || "").split(",").map(s => s.trim()).filter(Boolean);
-      const result = await getLiveJobs(companies, must, relevant);
+      const result = await getLiveJobs(companyNames.map(name => ({ name })), must, relevant);
       res.json(result);
     } catch (err) {
       res.status(502).json({ error: err instanceof Error ? err.message : "Job feed fetch failed" });

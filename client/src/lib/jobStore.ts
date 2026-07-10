@@ -1,5 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { Company } from "@/lib/jobWatchStore";
 
 export type WorkplaceType = "Remote" | "Hybrid" | "In-person";
 
@@ -21,7 +22,7 @@ export interface LiveJob {
  * when the user explicitly clicks the Refresh button (manual-only refresh).
  * On mount it reads the DB cache via trpc.jobs.getCached — no API call.
  */
-export function useJobStore(companies: string[], mustTags: string[], relevantTags: string[]) {
+export function useJobStore(companies: Company[], mustTags: string[], relevantTags: string[]) {
   const [jobs, setJobs] = useState<LiveJob[]>([]);
   const [recommendedJobs, setRecommendedJobs] = useState<LiveJob[]>([]);
   const [loading, setLoading] = useState(false);
@@ -30,10 +31,16 @@ export function useJobStore(companies: string[], mustTags: string[], relevantTag
 
   // Stabilise the input object so useQuery doesn't re-run on every render
   // (arrays created inline have new references each render → infinite queries).
-  const cacheInput = useMemo(
-    () => ({ companies, mustTags, relevantTags }),
+  // getCached uses company names only (no domain/url needed for cache lookup).
+  const companyNames = useMemo(
+    () => companies.map(c => c.name),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [companies.join(","), mustTags.join(","), relevantTags.join(",")],
+    [companies.map(c => c.name).join(",")],
+  );
+  const cacheInput = useMemo(
+    () => ({ companies: companyNames, mustTags, relevantTags }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [companyNames.join(","), mustTags.join(","), relevantTags.join(",")],
   );
 
   // Read-only cache query — runs once on mount, no refetch.
