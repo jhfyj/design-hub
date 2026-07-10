@@ -10,6 +10,7 @@ import { Search, Plus, X, ArrowLeft } from "lucide-react";
 import NavRail from "@/components/NavRail";
 import { useJobWatchStore, type Company } from "@/lib/jobWatchStore";
 import { companyLogoUrl, domainLogoUrl } from "@/lib/companyLogo";
+import { trpc } from "@/lib/trpc";
 
 // Autocomplete pools for the tag inputs below — stand in for a real
 // role-taxonomy/company-attribute source.
@@ -31,12 +32,6 @@ const RELEVANT_SUGGESTIONS = [
 interface CompanySuggestion {
   name: string;
   domain: string;
-}
-
-async function fetchCompanySuggestions(query: string): Promise<CompanySuggestion[]> {
-  const res = await fetch(`/api/company-search?q=${encodeURIComponent(query)}`);
-  if (!res.ok) return [];
-  return res.json();
 }
 
 // Small logo + first-letter-avatar fallback used in the Add Company
@@ -397,8 +392,6 @@ function AddCompanyModal({ onClose, onAdd }: {
   const [url, setUrl] = useState("");
   const [domain, setDomain] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [suggestions, setSuggestions] = useState<CompanySuggestion[]>([]);
-  const requestIdRef = useRef(0);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -408,20 +401,18 @@ function AddCompanyModal({ onClose, onAdd }: {
 
   const trimmed = name.trim();
 
-  // Debounced live company lookup (server/companySearch.ts) — covers
-  // essentially any registered company, not just a hardcoded list.
+  // Debounced live company lookup via tRPC (server/companySearch.ts, Clearbit)
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   useEffect(() => {
-    if (trimmed.length < 1) {
-      setSuggestions([]);
-      return;
-    }
-    const thisRequest = ++requestIdRef.current;
-    const id = setTimeout(async () => {
-      const results = await fetchCompanySuggestions(trimmed);
-      if (requestIdRef.current === thisRequest) setSuggestions(results.slice(0, 5));
-    }, 250);
+    const id = setTimeout(() => setDebouncedQuery(trimmed), 250);
     return () => clearTimeout(id);
   }, [trimmed]);
+
+  const { data: searchData } = trpc.companies.search.useQuery(
+    { q: debouncedQuery },
+    { enabled: debouncedQuery.length >= 1, retry: false, staleTime: 60_000 },
+  );
+  const suggestions: CompanySuggestion[] = (searchData?.results ?? []).slice(0, 5) as CompanySuggestion[];
 
   const handlePickSuggestion = (company: CompanySuggestion) => {
     setName(company.name);

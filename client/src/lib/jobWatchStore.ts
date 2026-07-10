@@ -1,4 +1,5 @@
-import { useCallback, useState } from "react";
+import { trpc } from "@/lib/trpc";
+import { useCallback, useEffect, useState } from "react";
 
 export interface Company {
   id: number;
@@ -50,58 +51,125 @@ function saveState(state: WatchlistState) {
   }
 }
 
-// Shared companies/must-include/relevant tags, persisted to localStorage so
-// JobWatchList.tsx (editing) and Home.tsx (reading, to drive the live job
-// fetch) stay in sync across navigation — each mounts its own hook instance,
-// but both read/write the same storage key.
+/**
+ * Shared companies/must-include/relevant tags.
+ *
+ * Persistence strategy:
+ * - Primary: DB via trpc.jobs.getWatchList / trpc.jobs.setWatchList
+ * - Fallback: localStorage (fast local state, no network round-trip)
+ *
+ * On mount: loads from DB (if available), falls back to localStorage.
+ * On every mutation: writes to both localStorage (instant) and DB (async).
+ */
 export function useJobWatchStore() {
   const [state, setState] = useState<WatchlistState>(() => loadState());
+  const [dbLoaded, setDbLoaded] = useState(false);
 
-  const update = useCallback((fn: (prev: WatchlistState) => WatchlistState) => {
-    setState(prev => {
-      const next = fn(prev);
-      saveState(next);
-      return next;
-    });
-  }, []);
+  // Load from DB on mount — overrides localStorage if DB has data.
+  const { data: dbData } = trpc.jobs.getWatchList.useQuery(undefined, {
+    retry: false,
+    refetchOnWindowFocus: false,
+    staleTime: 5 * 60 * 1000, // 5 min
+  });
 
-  const addCompany = useCallback((company: { name: string; url?: string; domain?: string }) => {
-    update(prev => ({
-      ...prev,
-      companies: [...prev.companies, {
-        id: prev.nextCompanyId, name: company.name.toUpperCase(),
-        url: company.url, domain: company.domain,
-      }],
-      nextCompanyId: prev.nextCompanyId + 1,
-    }));
-  }, [update]);
+  useEffect(() => {
+    if (dbData && !dbLoaded) {
+      const dbState: WatchlistState = {
+        companies: dbData.companies as Company[],
+        mustTags: dbData.mustTags,
+        relevantTags: dbData.relevantTags,
+        nextCompanyId: Math.max(1000, ...dbData.companies.map((c) => (c as Company).id + 1)),
+      };
+      setState(dbState);
+      saveState(dbState);
+      setDbLoaded(true);
+    }
+  }, [dbData, dbLoaded]);
 
-  const removeCompany = useCallback((id: number) => {
-    update(prev => ({ ...prev, companies: prev.companies.filter(c => c.id !== id) }));
-  }, [update]);
+  const setWatchListMutation = trpc.jobs.setWatchList.useMutation();
 
-  const updateCompanyUrl = useCallback((id: number, url: string) => {
-    update(prev => ({
-      ...prev,
-      companies: prev.companies.map(c => c.id === id ? { ...c, url: url || undefined } : c),
-    }));
-  }, [update]);
+  const update = useCallback(
+    (fn: (prev: WatchlistState) => WatchlistState) => {
+      setState((prev) => {
+        const next = fn(prev);
+        saveState(next);
+        // Async DB sync — fire and forget; localStorage is the source of truth
+        // for the current session. DB is for cross-session persistence.
+        setWatchListMutation.mutate({
+          companies: next.companies,
+          mustTags: next.mustTags,
+          relevantTags: next.relevantTags,
+        });
+        return next;
+      });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
 
-  const addMustTag = useCallback((tag: string) => {
-    update(prev => ({ ...prev, mustTags: [...prev.mustTags, tag] }));
-  }, [update]);
+  const addCompany = useCallback(
+    (company: { name: string; url?: string; domain?: string }) => {
+      update((prev) => ({
+        ...prev,
+        companies: [
+          ...prev.companies,
+          {
+            id: prev.nextCompanyId,
+            name: company.name.toUpperCase(),
+            url: company.url,
+            domain: company.domain,
+          },
+        ],
+        nextCompanyId: prev.nextCompanyId + 1,
+      }));
+    },
+    [update],
+  );
 
-  const removeMustTag = useCallback((tag: string) => {
-    update(prev => ({ ...prev, mustTags: prev.mustTags.filter(t => t !== tag) }));
-  }, [update]);
+  const removeCompany = useCallback(
+    (id: number) => {
+      update((prev) => ({ ...prev, companies: prev.companies.filter((c) => c.id !== id) }));
+    },
+    [update],
+  );
 
-  const addRelevantTag = useCallback((tag: string) => {
-    update(prev => ({ ...prev, relevantTags: [...prev.relevantTags, tag] }));
-  }, [update]);
+  const updateCompanyUrl = useCallback(
+    (id: number, url: string) => {
+      update((prev) => ({
+        ...prev,
+        companies: prev.companies.map((c) => (c.id === id ? { ...c, url: url || undefined } : c)),
+      }));
+    },
+    [update],
+  );
 
-  const removeRelevantTag = useCallback((tag: string) => {
-    update(prev => ({ ...prev, relevantTags: prev.relevantTags.filter(t => t !== tag) }));
-  }, [update]);
+  const addMustTag = useCallback(
+    (tag: string) => {
+      update((prev) => ({ ...prev, mustTags: [...prev.mustTags, tag] }));
+    },
+    [update],
+  );
+
+  const removeMustTag = useCallback(
+    (tag: string) => {
+      update((prev) => ({ ...prev, mustTags: prev.mustTags.filter((t) => t !== tag) }));
+    },
+    [update],
+  );
+
+  const addRelevantTag = useCallback(
+    (tag: string) => {
+      update((prev) => ({ ...prev, relevantTags: [...prev.relevantTags, tag] }));
+    },
+    [update],
+  );
+
+  const removeRelevantTag = useCallback(
+    (tag: string) => {
+      update((prev) => ({ ...prev, relevantTags: prev.relevantTags.filter((t) => t !== tag) }));
+    },
+    [update],
+  );
 
   return {
     companies: state.companies,

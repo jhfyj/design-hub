@@ -1,3 +1,4 @@
+import { trpc } from "@/lib/trpc";
 import { useCallback, useEffect, useState } from "react";
 
 export interface InspoItem {
@@ -12,8 +13,6 @@ export interface InspoItem {
   url: string;
   source: string;
 }
-
-const INSPO_URL = "/api/design-inspo";
 
 const INITIAL_COUNT = 24;
 const BATCH_SIZE = 15;
@@ -36,8 +35,8 @@ function shuffleArray<T>(arr: T[]): T[] {
 }
 
 /** Design Inspos board — fetches real scraped items (motion.dev, are.na;
- *  see server/designInspoFeed.ts) once on mount into a shuffled pool, then
- *  shows a growing slice of it: an initial batch to fill the section, plus
+ *  see server/designInspoFeed.ts) once on mount into a shuffled pool via tRPC,
+ *  then shows a growing slice of it: an initial batch to fill the section, plus
  *  up to MAX_SCROLL_BATCHES more as the user scrolls to the bottom. "Refresh"
  *  reshuffles the pool and restarts pagination, all client-side — no refetch. */
 export function useInspoStore() {
@@ -48,27 +47,25 @@ export function useInspoStore() {
   const [batchesLoaded, setBatchesLoaded] = useState(0);
   const reachedEnd = batchesLoaded >= MAX_SCROLL_BATCHES;
 
-  const fetchPool = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(INSPO_URL);
-      if (!res.ok) throw new Error(`Inspo request failed (${res.status})`);
-      const data: InspoItem[] = await res.json();
-      const shuffled = shuffleArray(data);
+  // Fetch inspo items via tRPC on mount
+  const { data: inspoData, isLoading: queryLoading } = trpc.inspo.getItems.useQuery(undefined, {
+    retry: false,
+    refetchOnWindowFocus: false,
+    staleTime: 30 * 60 * 1000, // 30 min — inspo items don't change often
+  });
+
+  useEffect(() => {
+    if (inspoData?.items) {
+      const shuffled = shuffleArray(inspoData.items as InspoItem[]);
       setPool(shuffled);
       setItems(shuffled.slice(0, INITIAL_COUNT));
       setBatchesLoaded(0);
-      return true;
-    } catch {
-      return false;
-    } finally {
-      setLoading(false);
     }
-  }, []);
+  }, [inspoData]);
 
   useEffect(() => {
-    fetchPool();
-  }, [fetchPool]);
+    setLoading(queryLoading);
+  }, [queryLoading]);
 
   // Reshuffling is instant (client-side only, no refetch) — the brief
   // loading pulse exists purely so the refresh button's icon has something

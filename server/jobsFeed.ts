@@ -186,16 +186,19 @@ function tagWords(tags: string[]): string[] {
   return tags.flatMap(tag => tag.trim().split(/\s+/)).filter(Boolean);
 }
 
-// Cheap, wide-net pre-filter: does this posting mention ANY of the
-// must-include words at all (word-boundary, so "intern" doesn't match
-// "internal")? This exists only to cut a company's full board (which can be
-// 100+ postings) down before the more expensive relevance pass below — it
-// is deliberately loose, not the real filter.
+// Title-based pre-filter: does this posting's TITLE mention ANY of the
+// must-include words? Checking only the title (not the description) avoids
+// false positives from boilerplate text that mentions "design" or "intern"
+// in passing (e.g. "collaborate with design and engineering", "if you are
+// an intern do not apply"). This is the coarse gate before Claude.
+// Falls back to checking the description too when no title match is found
+// at all — prevents a completely empty candidate set for unusual tag combos.
 function mentionsAnyMustWord(posting: RawJobPosting, tags: string[]): boolean {
   const words = tagWords(tags);
   if (words.length === 0) return true;
-  const text = `${posting.role} ${posting.description}`;
-  return words.some(word => new RegExp(`\\b${escapeRegex(word)}\\b`, "i").test(text));
+  // Primary: title-only match (strict)
+  const titleMatch = words.some(word => new RegExp(`\\b${escapeRegex(word)}\\b`, "i").test(posting.role));
+  return titleMatch;
 }
 
 // Fallback when there's no ANTHROPIC_API_KEY (or the call fails): at least
@@ -275,14 +278,20 @@ async function filterByMustInclude(postings: RawJobPosting[], mustTags: string[]
   let ids = cache[key];
 
   if (!ids) {
-    const prompt = `You are triaging job postings for a PRODUCT DESIGNER's job search (this tool is a design-focused job watch list — ambiguous keywords should be read in that light: "design" means product/UX/UI design, not generic engineering "system design"). The target role is described by these required keywords: ${JSON.stringify(mustTags)}. Treat the keywords together as describing ONE role (e.g. "design", "intern", "fall" together mean "Product Design Intern hiring for Fall") — not independent words to tally.
+    const prompt = `You are triaging job postings for a PRODUCT DESIGNER's job search. This tool is a design-focused job watch list — all keywords should be interpreted in a design context: "design" means product/UX/UI design, NOT engineering "system design".
 
-A posting only counts as a genuine match if it is REALLY that kind of role for a product/UX/UI designer. Reject it if a keyword only appears incidentally — generic company boilerplate ("collaborate with design and engineering"), a disclaimer aimed at a different audience ("if you are an intern, do not apply here"), an unrelated use of a common word ("responsibilities fall into three categories"), or a role in a different discipline that just happens to mention design in passing (e.g. a software/backend engineering role).
+Required keywords (describe ONE target role together): ${JSON.stringify(mustTags)}
+Example: ["Product Designer", "Intern", "Fall"] → looking for a Product Design Intern for Fall term.
 
-Candidates:
+IMPORTANT: The candidates below were pre-filtered so their JOB TITLE already contains at least one keyword. Your job is to confirm the title genuinely describes the target role — reject any posting where:
+- The title is for a different discipline (e.g. "Software Engineer", "Data Analyst", "Marketing Manager")
+- The keyword appears in the title as part of an unrelated phrase (e.g. "Design Systems Engineer" when looking for a product designer)
+- The role is clearly out of scope (e.g. looking for "Intern" but the title is "Senior Product Designer")
+
+Candidates (title is the primary signal; excerpt is for context only):
 ${JSON.stringify(candidates.map(c => ({ id: c.id, role: c.role, excerpt: c.description.slice(0, DESCRIPTION_EXCERPT_LENGTH) })))}
 
-Respond with ONLY a JSON array of the ids that are genuine matches (no markdown fences, no other text). It's fine to return an empty array if none genuinely match.`;
+Respond with ONLY a JSON array of the ids that are genuine matches (no markdown fences, no other text). Return [] if none match.`;
 
     const parsed = parseIdArray(await callClaude(prompt, 1000));
     if (parsed) {

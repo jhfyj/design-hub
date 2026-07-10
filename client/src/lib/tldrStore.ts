@@ -1,3 +1,4 @@
+import { trpc } from "@/lib/trpc";
 import { useCallback, useEffect, useState } from "react";
 
 export interface TldrArticle {
@@ -34,19 +35,6 @@ export const TLDR_ARTICLES: TldrArticle[] = [
   { id: 12, title: "Adobe Firefly Adds Vector-Native Generation", blurb: "Firefly can now generate directly editable vector paths instead of rasterized output for icon and illustration prompts.", need: "Vector-native generation removes the trace-and-clean step that made AI illustration impractical for production icon work.", means: "Re-evaluate AI illustration tools for production use now that output is editable, not just referenceable.", source: "Adobe Blog", url: "https://blog.adobe.com", publishedAt: NOW - 6 * DAY - 12 * HOUR },
 ];
 
-// ── Real feed: TLDR Design + UX Collective newsletters ──────────────────────
-// Fetching, per-story splitting (TLDR's digest pages bundle ~15 stories into
-// one RSS entry), relevance filtering, and need/means generation all happen
-// server-side (server/tldrFeed.ts) — this just consumes the finished result,
-// already scoped down to the articles worth a product designer's time.
-const FEED_ARTICLES_URL = "/api/tldr/articles";
-
-async function fetchFeedArticles(): Promise<TldrArticle[]> {
-  const res = await fetch(FEED_ARTICLES_URL);
-  if (!res.ok) throw new Error(`Feed request failed (${res.status})`);
-  return res.json();
-}
-
 const STORAGE_KEY = "dh_tldr_read_ids";
 
 function loadReadIds(): Set<number> {
@@ -72,19 +60,34 @@ function byNewestFirst(a: TldrArticle, b: TldrArticle) {
 
 /** Shared read/unread state for TLDR articles, persisted to localStorage so
  *  Home (unread feed) and the Archive page (read articles) stay in sync.
- *  Merges the static mock pool with the real TLDR Design RSS feed, which is
- *  fetched fresh on every mount (i.e. every page load) and can be re-pulled
- *  on demand via refreshFeed. */
+ *  Merges the static mock pool with the real TLDR Design RSS feed.
+ *  Feed is loaded via tRPC (DB cache, 4h TTL) — refreshFeed() triggers a
+ *  force-refresh regardless of cache age. */
 export function useTldrStore() {
   const [readIds, setReadIds] = useState<Set<number>>(() => loadReadIds());
   const [feedArticles, setFeedArticles] = useState<TldrArticle[]>([]);
   const [feedLoading, setFeedLoading] = useState(false);
 
+  // Load articles from DB cache on mount (no Claude call if cache is fresh)
+  const { data: articlesData } = trpc.tldr.getArticles.useQuery(undefined, {
+    retry: false,
+    refetchOnWindowFocus: false,
+    staleTime: 4 * 60 * 60 * 1000, // 4h — matches server-side TTL
+  });
+
+  useEffect(() => {
+    if (articlesData?.articles) {
+      setFeedArticles(articlesData.articles as TldrArticle[]);
+    }
+  }, [articlesData]);
+
+  const refreshMutation = trpc.tldr.refresh.useMutation();
+
   const refreshFeed = useCallback(async () => {
     setFeedLoading(true);
     try {
-      const articles = await fetchFeedArticles();
-      setFeedArticles(articles);
+      const result = await refreshMutation.mutateAsync();
+      setFeedArticles(result.articles as TldrArticle[]);
       return true;
     } catch {
       // Keep whatever was already loaded — a failed refresh shouldn't wipe
@@ -93,11 +96,7 @@ export function useTldrStore() {
     } finally {
       setFeedLoading(false);
     }
-  }, []);
-
-  useEffect(() => {
-    refreshFeed();
-  }, [refreshFeed]);
+  }, [refreshMutation]);
 
   const markAsRead = useCallback((id: number) => {
     setReadIds(prev => {

@@ -8,8 +8,8 @@ import Home from "./pages/Home";
 import ProjectCanvas from "./pages/ProjectCanvas";
 import JobWatchList from "./pages/JobWatchList";
 import Archive from "./pages/Archive";
-
 function Router() {
+  // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
       <Route path="/" component={Home} />
